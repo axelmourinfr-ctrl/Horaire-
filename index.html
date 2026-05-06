@@ -1,0 +1,1513 @@
+<!DOCTYPE html>
+
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PlanEduc Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#f4f3ef;
+  --surface:#ffffff;
+  --surface2:#f8f7f4;
+  --border:#e2e0da;
+  --border2:#ccc9c0;
+  --ink:#1a1916;
+  --ink2:#4a4840;
+  --ink3:#8a8680;
+  --accent:#c8622a;
+  --accent-light:#fdf0ea;
+  --blue:#2a5fc8;
+  --blue-light:#eaf0fd;
+  --green:#2a8a5c;
+  --green-light:#eafaf2;
+  --purple:#7a3fc8;
+  --purple-light:#f3eafd;
+  --orange:#e8920a;
+  --orange-light:#fdf6ea;
+  --red:#c82a2a;
+  --red-light:#fdeaea;
+  --radius:10px;
+  --shadow:0 2px 12px rgba(26,25,22,0.08);
+  --shadow-lg:0 8px 32px rgba(26,25,22,0.12);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;font-size:14px;}
+
+/* LAYOUT */
+.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh;}
+.sidebar{background:var(–ink);color:#fff;padding:0;display:flex;flex-direction:column;position:fixed;width:220px;height:100vh;overflow-y:auto;}
+.main-content{margin-left:220px;padding:32px;min-height:100vh;}
+
+/* SIDEBAR */
+.brand{padding:24px 20px 20px;border-bottom:1px solid rgba(255,255,255,0.08);}
+.brand h1{font-family:‘Syne’,sans-serif;font-size:1.3rem;font-weight:800;letter-spacing:-0.5px;color:#fff;}
+.brand p{font-size:0.72rem;color:rgba(255,255,255,0.4);margin-top:2px;}
+.nav-section{padding:16px 12px 8px;font-size:0.68rem;font-weight:600;letter-spacing:1.5px;color:rgba(255,255,255,0.3);text-transform:uppercase;}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 20px;cursor:pointer;color:rgba(255,255,255,0.6);font-size:0.85rem;font-weight:500;transition:.15s;border-left:3px solid transparent;}
+.nav-item:hover{color:#fff;background:rgba(255,255,255,0.05);}
+.nav-item.active{color:#fff;background:rgba(200,98,42,0.2);border-left-color:var(–accent);}
+.nav-item .icon{font-size:1rem;width:20px;text-align:center;}
+.nav-bottom{margin-top:auto;padding:16px;border-top:1px solid rgba(255,255,255,0.08);}
+.nav-badge{background:var(–accent);color:#fff;font-size:0.65rem;padding:2px 6px;border-radius:10px;margin-left:auto;}
+
+/* PAGES */
+.page{display:none;}
+.page.active{display:block;}
+.page-title{font-family:‘Syne’,sans-serif;font-size:1.6rem;font-weight:800;letter-spacing:-1px;margin-bottom:4px;}
+.page-sub{color:var(–ink3);font-size:0.85rem;margin-bottom:24px;}
+
+/* CARDS */
+.card{background:var(–surface);border:1px solid var(–border);border-radius:var(–radius);padding:20px;margin-bottom:16px;box-shadow:var(–shadow);}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.card-title{font-family:‘Syne’,sans-serif;font-size:0.95rem;font-weight:700;}
+.card-sub{color:var(–ink3);font-size:0.78rem;margin-top:2px;}
+
+/* GRID LAYOUTS */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
+.grid-4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;}
+@media(max-width:900px){.grid-4{grid-template-columns:1fr 1fr;}.grid-3{grid-template-columns:1fr 1fr;}}
+
+/* FORMS */
+.field{margin-bottom:12px;}
+.field label{display:block;font-size:0.78rem;font-weight:600;color:var(–ink2);margin-bottom:5px;letter-spacing:0.2px;}
+input[type=text],input[type=number],input[type=time],input[type=date],select,textarea{
+width:100%;padding:9px 12px;border:1.5px solid var(–border);border-radius:8px;
+font-family:inherit;font-size:0.85rem;color:var(–ink);background:var(–surface);
+outline:none;transition:.15s;
+}
+input:focus,select:focus,textarea:focus{border-color:var(–accent);box-shadow:0 0 0 3px var(–accent-light);}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(–accent);cursor:pointer;}
+.inline-fields{display:flex;gap:10px;align-items:flex-end;}
+.inline-fields .field{flex:1;margin-bottom:0;}
+.checkbox-group{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}
+.check-label{display:flex;align-items:center;gap:5px;font-size:0.82rem;cursor:pointer;padding:4px 10px;border:1.5px solid var(–border);border-radius:20px;transition:.15s;user-select:none;}
+.check-label:hover{border-color:var(–accent);background:var(–accent-light);}
+.check-label input:checked + span{color:var(–accent);font-weight:600;}
+.check-label:has(input:checked){border-color:var(–accent);background:var(–accent-light);}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-family:inherit;font-size:0.83rem;font-weight:600;transition:.15s;text-decoration:none;}
+.btn-primary{background:var(–accent);color:#fff;}
+.btn-primary:hover{background:#b0551f;}
+.btn-secondary{background:var(–ink);color:#fff;}
+.btn-secondary:hover{background:#333;}
+.btn-outline{background:transparent;border:1.5px solid var(–border);color:var(–ink2);}
+.btn-outline:hover{border-color:var(–ink);color:var(–ink);}
+.btn-green{background:var(–green);color:#fff;}
+.btn-green:hover{filter:brightness(1.1);}
+.btn-danger{background:transparent;border:1.5px solid var(–red);color:var(–red);}
+.btn-danger:hover{background:var(–red);color:#fff;}
+.btn-sm{padding:5px 12px;font-size:0.75rem;}
+.btn-icon{padding:7px;border-radius:7px;}
+.btn-row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap;}
+
+/* TAGS / BADGES */
+.badge{display:inline-block;font-size:0.7rem;font-weight:600;padding:2px 8px;border-radius:20px;}
+.badge-blue{background:var(–blue-light);color:var(–blue);}
+.badge-green{background:var(–green-light);color:var(–green);}
+.badge-orange{background:var(–orange-light);color:var(–orange);}
+.badge-purple{background:var(–purple-light);color:var(–purple);}
+.badge-red{background:var(–red-light);color:var(–red);}
+.badge-accent{background:var(–accent-light);color:var(–accent);}
+
+/* STAT CARDS */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px;}
+.stat-card{background:var(–surface);border:1px solid var(–border);border-radius:var(–radius);padding:16px;text-align:center;}
+.stat-val{font-family:‘Syne’,sans-serif;font-size:1.8rem;font-weight:800;line-height:1;}
+.stat-label{font-size:0.72rem;color:var(–ink3);margin-top:4px;font-weight:500;}
+
+/* ALERTS */
+.alert{border-radius:8px;padding:12px 16px;margin-bottom:12px;font-size:0.83rem;display:flex;gap:10px;align-items:flex-start;line-height:1.5;}
+.alert-ok{background:var(–green-light);border:1px solid #b3e5cf;color:#1a5c3a;}
+.alert-warn{background:var(–orange-light);border:1px solid #f5d58a;color:#7a4a06;}
+.alert-err{background:var(–red-light);border:1px solid #f5b3b3;color:#7a1a1a;}
+.alert-info{background:var(–blue-light);border:1px solid #b3cdf5;color:#1a3a7a;}
+
+/* EDUC LIST */
+.educ-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;}
+.educ-card{background:var(–surface2);border:1.5px solid var(–border);border-radius:10px;padding:14px;transition:.15s;}
+.educ-card:hover{border-color:var(–border2);box-shadow:var(–shadow);}
+.educ-top{display:flex;align-items:center;gap:12px;margin-bottom:10px;}
+.educ-avatar{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:‘Syne’,sans-serif;font-weight:800;font-size:0.95rem;color:#fff;flex-shrink:0;}
+.educ-name{font-weight:600;font-size:0.9rem;}
+.educ-contract{font-size:0.73rem;color:var(–ink3);}
+.educ-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;}
+.educ-actions{display:flex;gap:6px;margin-left:auto;}
+
+/* PLAGES */
+.plage-item{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(–surface2);border:1.5px solid var(–border);border-radius:8px;margin-bottom:8px;}
+.plage-color{width:10px;height:36px;border-radius:4px;flex-shrink:0;}
+.plage-info{flex:1;}
+.plage-name{font-weight:600;font-size:0.88rem;}
+.plage-details{font-size:0.75rem;color:var(–ink3);margin-top:2px;}
+.plage-actions{display:flex;gap:6px;}
+
+/* SCHEDULE TABLE */
+.schedule-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.schedule-table{border-collapse:collapse;min-width:900px;width:100%;}
+.schedule-table th{background:var(–ink);color:#fff;padding:10px 8px;text-align:center;font-size:0.75rem;font-weight:600;letter-spacing:0.5px;border:1px solid rgba(255,255,255,0.1);position:sticky;top:0;z-index:2;}
+.schedule-table th.we{background:#2a2826;}
+.schedule-table td{padding:5px 4px;border:1px solid var(–border);vertical-align:top;min-width:90px;}
+.schedule-table .educ-row-head{background:var(–surface2);font-weight:600;font-size:0.8rem;padding:8px 12px;position:sticky;left:0;z-index:1;min-width:150px;border-right:2px solid var(–border2);}
+.cell-slot{border-radius:5px;padding:3px 7px;font-size:0.72rem;font-weight:600;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:.1s;}
+.cell-slot:hover{filter:brightness(0.9);}
+.cell-off{font-size:0.7rem;color:var(–ink3);text-align:center;padding:4px;}
+.cell-absent{background:#fdeaea;color:#c82a2a;border-radius:5px;padding:3px 7px;font-size:0.72rem;font-weight:600;}
+.we-col{background:rgba(42,95,200,0.03);}
+
+/* MONTH NAV */
+.month-nav{display:flex;align-items:center;gap:12px;margin-bottom:20px;}
+.month-label{font-family:‘Syne’,sans-serif;font-size:1.1rem;font-weight:700;}
+.month-nav .btn{padding:6px 14px;}
+
+/* TABS internal */
+.inner-tabs{display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(–border);padding-bottom:0;}
+.inner-tab{padding:9px 18px;cursor:pointer;font-size:0.83rem;font-weight:600;color:var(–ink3);border-bottom:2px solid transparent;margin-bottom:-2px;transition:.15s;}
+.inner-tab.active{color:var(–accent);border-bottom-color:var(–accent);}
+
+/* RULES */
+.rule-item{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(–surface2);border:1.5px solid var(–border);border-radius:8px;margin-bottom:8px;}
+.rule-icon{font-size:1.2rem;width:28px;text-align:center;}
+.rule-info{flex:1;}
+.rule-name{font-weight:600;font-size:0.87rem;}
+.rule-desc{font-size:0.75rem;color:var(–ink3);margin-top:2px;}
+.rule-val{display:flex;align-items:center;gap:8px;}
+.rule-val input{width:70px;}
+
+/* MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(26,25,22,0.5);z-index:100;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px);}
+.modal{background:var(–surface);border-radius:14px;padding:28px;width:min(560px,95vw);max-height:90vh;overflow-y:auto;box-shadow:var(–shadow-lg);}
+.modal-title{font-family:‘Syne’,sans-serif;font-size:1.15rem;font-weight:800;margin-bottom:4px;}
+.modal-sub{color:var(–ink3);font-size:0.8rem;margin-bottom:20px;}
+.modal-close{float:right;background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(–ink3);}
+
+/* SPINNER */
+.spinner{width:18px;height:18px;border:2.5px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:inline-block;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* SECTION DIVIDER */
+hr{border:none;border-top:1px solid var(–border);margin:20px 0;}
+.section-label{font-size:0.72rem;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(–ink3);margin-bottom:12px;}
+
+/* ABSENCE TAG */
+.absence-dot{width:8px;height:8px;border-radius:50%;background:var(–red);display:inline-block;margin-right:4px;}
+
+/* TOOLTIP */
+[title]{cursor:help;}
+
+/* PRINT */
+@media print{
+.sidebar,.btn,.month-nav .btn,.btn-row{display:none!important;}
+.main-content{margin-left:0;padding:10px;}
+.card{box-shadow:none;border:1px solid #ccc;}
+.schedule-table{font-size:0.65rem;}
+}
+
+/* EMPTY STATE */
+.empty-state{text-align:center;padding:40px 20px;color:var(–ink3);}
+.empty-state .icon{font-size:2.5rem;margin-bottom:12px;}
+.empty-state p{font-size:0.88rem;}
+
+/* PROGRESS */
+.progress-bar{height:6px;background:var(–border);border-radius:3px;overflow:hidden;margin-top:8px;}
+.progress-fill{height:100%;background:var(–accent);border-radius:3px;transition:.3s;}
+
+/* COLOR PICKER ROW */
+.color-swatches{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+.swatch{width:24px;height:24px;border-radius:6px;cursor:pointer;border:2px solid transparent;transition:.1s;}
+.swatch.selected,.swatch:hover{border-color:var(–ink);transform:scale(1.1);}
+</style>
+
+</head>
+<body>
+
+<!-- =============================== APP =============================== -->
+
+<div class="app">
+
+<!-- SIDEBAR -->
+
+<aside class="sidebar">
+  <div class="brand">
+    <h1>PlanEduc Pro</h1>
+    <p>Gestion des horaires éducateurs</p>
+  </div>
+  <div class="nav-section">Configuration</div>
+  <div class="nav-item active" onclick="nav('educateurs')"><span class="icon">👥</span> Éducateurs <span class="nav-badge" id="nb-educ">0</span></div>
+  <div class="nav-item" onclick="nav('plages')"><span class="icon">🕐</span> Plages horaires <span class="nav-badge" id="nb-plages">0</span></div>
+  <div class="nav-item" onclick="nav('regles')"><span class="icon">⚖️</span> Règles & Lois</div>
+  <div class="nav-section">Planification</div>
+  <div class="nav-item" onclick="nav('generer')"><span class="icon">⚡</span> Générer</div>
+  <div class="nav-item" onclick="nav('horaire')"><span class="icon">📅</span> Horaire mensuel</div>
+  <div class="nav-item" onclick="nav('absences')"><span class="icon">🏥</span> Absences / Congés</div>
+  <div class="nav-section">Données</div>
+  <div class="nav-item" onclick="exportData()"><span class="icon">💾</span> Exporter</div>
+  <div class="nav-item" onclick="triggerImport()"><span class="icon">📂</span> Importer</div>
+  <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
+  <div class="nav-bottom">
+    <div style="font-size:0.72rem;color:rgba(255,255,255,0.3);">v2.0 — Données sauvegardées localement</div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+
+<main class="main-content">
+
+<!-- ===================== ÉDUCATEURS ===================== -->
+
+<div id="page-educateurs" class="page active">
+  <div class="page-title">👥 Éducateurs</div>
+  <div class="page-sub">Gérez l'équipe, les contrats et les préférences de chaque éducateur.</div>
+
+  <div id="educ-alerts"></div>
+
+  <div class="card">
+    <div class="card-header">
+      <div><div class="card-title">Ajouter un éducateur</div></div>
+      <button class="btn btn-primary btn-sm" onclick="openAddEduc()">+ Nouvel éducateur</button>
+    </div>
+    <div id="educ-grid" class="educ-grid">
+      <div class="empty-state"><div class="icon">👤</div><p>Aucun éducateur encore.<br>Cliquez sur "+ Nouvel éducateur".</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== PLAGES HORAIRES ===================== -->
+
+<div id="page-plages" class="page">
+  <div class="page-title">🕐 Plages horaires</div>
+  <div class="page-sub">Définissez toutes vos prestations (semaine, week-end, nuit…). Chaque plage a ses propres heures et jours d'application.</div>
+
+  <div class="card">
+    <div class="card-header">
+      <div><div class="card-title">Créer une plage horaire</div></div>
+    </div>
+    <div class="grid-2">
+      <div class="field"><label>Nom de la plage</label><input type="text" id="plage-nom" placeholder="ex: Matin semaine, Nuit WE, Après-midi…"></div>
+      <div class="field"><label>Type</label>
+        <select id="plage-type">
+          <option value="matin">🌅 Matin</option>
+          <option value="aprem">☀️ Après-midi</option>
+          <option value="soir">🌆 Soir</option>
+          <option value="nuit">🌙 Nuit</option>
+          <option value="journee">🌤️ Journée complète</option>
+          <option value="garde">🔔 Garde</option>
+          <option value="autre">📌 Autre</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="field"><label>Heure de début</label><input type="time" id="plage-debut" value="07:00"></div>
+      <div class="field"><label>Heure de fin</label><input type="time" id="plage-fin" value="14:30"></div>
+    </div>
+    <div class="field"><label>Jours d'application</label>
+      <div class="checkbox-group">
+        <label class="check-label"><input type="checkbox" class="plage-jour" value="0"><span>Lun</span></label>
+        <label class="check-label"><input type="checkbox" class="plage-jour" value="1"><span>Mar</span></label>
+        <label class="check-label"><input type="checkbox" class="plage-jour" value="2"><span>Mer</span></label>
+        <label class="check-label"><input type="checkbox" class="plage-jour" value="3"><span>Jeu</span></label>
+        <label class="check-label"><input type="checkbox" class="plage-jour" value="4"><span>Ven</span></label>
+        <label class="check-label"><input type="checkbox" class="plage-jour" value="5"><span>Sam</span></label>
+        <label class="check-label"><input type="checkbox" class="plage-jour" value="6"><span>Dim</span></label>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="field"><label>Nb minimum d'éducateurs requis</label><input type="number" id="plage-min" value="1" min="0" max="20"></div>
+      <div class="field"><label>Nb maximum d'éducateurs</label><input type="number" id="plage-max" value="3" min="1" max="20"></div>
+    </div>
+    <div class="field"><label>Couleur d'affichage</label>
+      <div class="color-swatches" id="plage-colors">
+        <div class="swatch selected" style="background:#2a5fc8" data-color="#2a5fc8"></div>
+        <div class="swatch" style="background:#2a8a5c" data-color="#2a8a5c"></div>
+        <div class="swatch" style="background:#c8622a" data-color="#c8622a"></div>
+        <div class="swatch" style="background:#7a3fc8" data-color="#7a3fc8"></div>
+        <div class="swatch" style="background:#c82a2a" data-color="#c82a2a"></div>
+        <div class="swatch" style="background:#e8920a" data-color="#e8920a"></div>
+        <div class="swatch" style="background:#1a8a8a" data-color="#1a8a8a"></div>
+        <div class="swatch" style="background:#6a8a2a" data-color="#6a8a2a"></div>
+        <div class="swatch" style="background:#8a2a6a" data-color="#8a2a6a"></div>
+      </div>
+      <input type="hidden" id="plage-color" value="#2a5fc8">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="addPlage()">+ Ajouter cette plage</button>
+    </div>
+  </div>
+
+  <div class="section-label">Plages définies</div>
+  <div id="plage-list"><div class="empty-state"><div class="icon">🕐</div><p>Aucune plage horaire définie.</p></div></div>
+</div>
+
+<!-- ===================== RÈGLES ===================== -->
+
+<div id="page-regles" class="page">
+  <div class="page-title">⚖️ Règles & Lois</div>
+  <div class="page-sub">Encodez les règles légales et les conventions internes. Elles seront vérifiées lors de chaque génération d'horaire.</div>
+
+  <div class="inner-tabs">
+    <div class="inner-tab active" onclick="innerTab(this,'regles-legales')">⚖️ Règles légales</div>
+    <div class="inner-tab" onclick="innerTab(this,'regles-internes')">🏢 Convention interne</div>
+    <div class="inner-tab" onclick="innerTab(this,'regles-custom')">✏️ Règles personnalisées</div>
+  </div>
+
+  <div id="regles-legales">
+    <div class="card">
+      <div class="card-title" style="margin-bottom:14px;">Temps de travail & repos</div>
+      <div id="rules-list-legal"></div>
+    </div>
+  </div>
+  <div id="regles-internes" style="display:none">
+    <div class="card">
+      <div class="card-title" style="margin-bottom:14px;">Convention interne</div>
+      <div id="rules-list-internal"></div>
+    </div>
+  </div>
+  <div id="regles-custom" style="display:none">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Règles personnalisées</div>
+        <button class="btn btn-outline btn-sm" onclick="openAddRule()">+ Ajouter une règle</button>
+      </div>
+      <div id="rules-list-custom"><div class="empty-state"><div class="icon">✏️</div><p>Aucune règle personnalisée.</p></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== GÉNÉRER ===================== -->
+
+<div id="page-generer" class="page">
+  <div class="page-title">⚡ Générer l'horaire</div>
+  <div class="page-sub">L'algorithme crée automatiquement le meilleur horaire en respectant lois → équité → préférences.</div>
+
+  <div id="gen-alerts"></div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title" style="margin-bottom:14px;">Période à planifier</div>
+      <div class="field"><label>Mois et année</label><input type="month" id="gen-mois"></div>
+      <div class="field"><label>Cycle de répétition (semaines)</label>
+        <select id="gen-cycle">
+          <option value="0">Pas de cycle — planifier librement</option>
+          <option value="2">Cycle de 2 semaines</option>
+          <option value="3">Cycle de 3 semaines</option>
+          <option value="4">Cycle de 4 semaines</option>
+          <option value="6">Cycle de 6 semaines</option>
+        </select>
+      </div>
+      <div class="field"><label>Priorité de génération</label>
+        <select id="gen-prio">
+          <option value="loi">1. Loi → 2. Équité → 3. Préférences</option>
+          <option value="equite">1. Loi → 2. Préférences → 3. Équité</option>
+        </select>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:14px;">Options avancées</div>
+      <div class="field">
+        <label class="check-label" style="border:none;padding:0;gap:8px;">
+          <input type="checkbox" id="gen-fixernuits" checked><span>Rotation équitable des nuits</span>
+        </label>
+      </div>
+      <div class="field">
+        <label class="check-label" style="border:none;padding:0;gap:8px;">
+          <input type="checkbox" id="gen-fixerwe" checked><span>Rotation équitable des week-ends</span>
+        </label>
+      </div>
+      <div class="field">
+        <label class="check-label" style="border:none;padding:0;gap:8px;">
+          <input type="checkbox" id="gen-respectcongé" checked><span>Respecter congés encodés</span>
+        </label>
+      </div>
+      <div class="field">
+        <label class="check-label" style="border:none;padding:0;gap:8px;">
+          <input type="checkbox" id="gen-eviterplit" checked><span>Éviter les journées coupées (matin + soir)</span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="gen-recap" style="display:none">
+    <div class="card-title" style="margin-bottom:14px;">Vérification pré-génération</div>
+    <div id="gen-recap-content"></div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-outline" onclick="verifierAvantGen()">🔍 Vérifier avant de générer</button>
+    <button class="btn btn-green" id="gen-btn" onclick="lancerGeneration()">⚡ Générer l'horaire</button>
+  </div>
+
+  <div id="gen-progress" style="display:none" class="card">
+    <div class="card-title" style="margin-bottom:10px;">Génération en cours…</div>
+    <div class="progress-bar"><div class="progress-fill" id="gen-progress-bar" style="width:0%"></div></div>
+    <div id="gen-log" style="font-size:0.78rem;color:var(--ink3);margin-top:12px;line-height:1.9;max-height:200px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<!-- ===================== HORAIRE ===================== -->
+
+<div id="page-horaire" class="page">
+  <div class="page-title">📅 Horaire mensuel</div>
+  <div class="page-sub">Vue complète du mois. Cliquez sur une cellule pour modifier manuellement une assignation.</div>
+
+  <div class="month-nav">
+    <button class="btn btn-outline" onclick="changeMonth(-1)">← Mois précédent</button>
+    <span class="month-label" id="horaire-month-label">—</span>
+    <button class="btn btn-outline" onclick="changeMonth(1)">Mois suivant →</button>
+    <button class="btn btn-outline btn-sm" onclick="window.print()" style="margin-left:auto">🖨️ Imprimer</button>
+    <button class="btn btn-outline btn-sm" onclick="exportHorairePDF()">📄 Export CSV</button>
+  </div>
+
+  <div id="horaire-stats" class="stats-row"></div>
+  <div id="horaire-alerts"></div>
+
+  <!-- TABS: par éduc / par jour -->
+
+  <div class="inner-tabs">
+    <div class="inner-tab active" onclick="innerTab(this,'vue-educ')">👤 Par éducateur</div>
+    <div class="inner-tab" onclick="innerTab(this,'vue-jour')">📅 Par jour</div>
+    <div class="inner-tab" onclick="innerTab(this,'vue-heures')">⏱️ Comptage heures</div>
+  </div>
+
+  <div id="vue-educ"><div class="card schedule-wrap"><div id="table-educ"></div></div></div>
+  <div id="vue-jour" style="display:none"><div class="card schedule-wrap"><div id="table-jour"></div></div></div>
+  <div id="vue-heures" style="display:none"><div class="card"><div id="table-heures"></div></div></div>
+</div>
+
+<!-- ===================== ABSENCES ===================== -->
+
+<div id="page-absences" class="page">
+  <div class="page-title">🏥 Absences & Congés</div>
+  <div class="page-sub">Encodez les absences (maladie, congé, récupération…). L'horaire sera recalculé automatiquement.</div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:14px;">Encoder une absence</div>
+    <div class="grid-2">
+      <div class="field"><label>Éducateur</label>
+        <select id="abs-educ"><option value="">-- Choisir --</option></select>
+      </div>
+      <div class="field"><label>Type</label>
+        <select id="abs-type">
+          <option value="conge">🌴 Congé annuel</option>
+          <option value="maladie">🤒 Maladie</option>
+          <option value="recuperation">🔄 Récupération</option>
+          <option value="formation">📚 Formation</option>
+          <option value="autre">📌 Autre</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="field"><label>Date de début</label><input type="date" id="abs-debut"></div>
+      <div class="field"><label>Date de fin</label><input type="date" id="abs-fin"></div>
+    </div>
+    <div class="field"><label>Remarque (optionnel)</label><input type="text" id="abs-note" placeholder="ex: congé prévu depuis longtemps, médecin…"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="addAbsence()">+ Enregistrer l'absence</button>
+    </div>
+  </div>
+
+  <div class="section-label">Absences enregistrées</div>
+  <div id="abs-list"><div class="empty-state"><div class="icon">✅</div><p>Aucune absence encodée.</p></div></div>
+</div>
+
+</main>
+</div>
+
+<!-- ===================== MODALS ===================== -->
+
+<!-- MODAL EDUC -->
+
+<div id="modal-educ" class="modal-overlay" style="display:none" onclick="closeModal(event,'modal-educ')">
+<div class="modal" onclick="event.stopPropagation()">
+  <button class="modal-close" onclick="closeModalById('modal-educ')">✕</button>
+  <div class="modal-title" id="modal-educ-title">Nouvel éducateur</div>
+  <div class="modal-sub">Remplissez les informations de l'éducateur</div>
+
+  <input type="hidden" id="educ-edit-id">
+  <div class="grid-2">
+    <div class="field"><label>Prénom</label><input type="text" id="educ-prenom" placeholder="Marie"></div>
+    <div class="field"><label>Nom</label><input type="text" id="educ-nom" placeholder="Dupont"></div>
+  </div>
+  <div class="grid-2">
+    <div class="field"><label>Type de contrat</label>
+      <select id="educ-contrat">
+        <option value="temps-plein">Temps plein (38h/sem)</option>
+        <option value="4/5">4/5 temps (30.4h/sem)</option>
+        <option value="3/4">3/4 temps (28.5h/sem)</option>
+        <option value="mi-temps">Mi-temps (19h/sem)</option>
+        <option value="personnalise">Personnalisé</option>
+      </select>
+    </div>
+    <div class="field"><label>Heures hebdo (si personnalisé)</label><input type="number" id="educ-heures" placeholder="ex: 32" step="0.5" min="4" max="50"></div>
+  </div>
+  <div class="field"><label>Jours de travail habituels</label>
+    <div class="checkbox-group">
+      <label class="check-label"><input type="checkbox" class="educ-jour" value="0" checked><span>Lun</span></label>
+      <label class="check-label"><input type="checkbox" class="educ-jour" value="1" checked><span>Mar</span></label>
+      <label class="check-label"><input type="checkbox" class="educ-jour" value="2" checked><span>Mer</span></label>
+      <label class="check-label"><input type="checkbox" class="educ-jour" value="3" checked><span>Jeu</span></label>
+      <label class="check-label"><input type="checkbox" class="educ-jour" value="4" checked><span>Ven</span></label>
+      <label class="check-label"><input type="checkbox" class="educ-jour" value="5"><span>Sam</span></label>
+      <label class="check-label"><input type="checkbox" class="educ-jour" value="6"><span>Dim</span></label>
+    </div>
+  </div>
+  <hr>
+  <div class="section-label">Préférences de plages horaires</div>
+  <div class="field"><label>Plages préférées</label><div class="checkbox-group" id="educ-prefs-list"></div></div>
+  <div class="field"><label>Plages refusées (contrainte forte)</label><div class="checkbox-group" id="educ-excls-list"></div></div>
+  <hr>
+  <div class="field"><label>Remarques / demandes spéciales</label>
+    <textarea id="educ-notes" rows="3" placeholder="ex: ne peut pas faire 2 nuits d'affilée, préfère travailler avec Pierre, congé annuel en août…"></textarea>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-outline" onclick="closeModalById('modal-educ')">Annuler</button>
+    <button class="btn btn-primary" onclick="saveEduc()">💾 Enregistrer</button>
+  </div>
+</div>
+</div>
+
+<!-- MODAL RULE -->
+
+<div id="modal-rule" class="modal-overlay" style="display:none" onclick="closeModal(event,'modal-rule')">
+<div class="modal" onclick="event.stopPropagation()">
+  <button class="modal-close" onclick="closeModalById('modal-rule')">✕</button>
+  <div class="modal-title">Règle personnalisée</div>
+  <div class="modal-sub">Définissez votre propre contrainte</div>
+  <div class="field"><label>Nom de la règle</label><input type="text" id="rule-nom" placeholder="ex: Pas de nuit après congé"></div>
+  <div class="field"><label>Description</label><input type="text" id="rule-desc" placeholder="Explique ce que cette règle impose"></div>
+  <div class="grid-2">
+    <div class="field"><label>Type</label>
+      <select id="rule-type">
+        <option value="max_consec">Max jours consécutifs</option>
+        <option value="min_repos">Min repos entre 2 prestations (h)</option>
+        <option value="max_nuits_consec">Max nuits consécutives</option>
+        <option value="max_we_mois">Max WE par mois</option>
+        <option value="repos_apres_nuit">Repos après nuit (jours)</option>
+        <option value="max_heures_semaine">Max heures/semaine</option>
+        <option value="min_heures_semaine">Min heures/semaine</option>
+      </select>
+    </div>
+    <div class="field"><label>Valeur</label><input type="number" id="rule-val" value="5" min="0" max="100"></div>
+  </div>
+  <div class="field"><label>S'applique à</label>
+    <select id="rule-scope">
+      <option value="tous">Tous les éducateurs</option>
+      <option value="contrat-temps-plein">Temps plein seulement</option>
+      <option value="contrat-mi-temps">Mi-temps seulement</option>
+    </select>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-outline" onclick="closeModalById('modal-rule')">Annuler</button>
+    <button class="btn btn-primary" onclick="saveRule()">💾 Enregistrer</button>
+  </div>
+</div>
+</div>
+
+<!-- MODAL CELL EDIT -->
+
+<div id="modal-cell" class="modal-overlay" style="display:none" onclick="closeModal(event,'modal-cell')">
+<div class="modal" onclick="event.stopPropagation()">
+  <button class="modal-close" onclick="closeModalById('modal-cell')">✕</button>
+  <div class="modal-title" id="cell-modal-title">Modifier l'assignation</div>
+  <div class="modal-sub" id="cell-modal-sub"></div>
+  <div id="cell-modal-content"></div>
+  <div class="btn-row">
+    <button class="btn btn-outline" onclick="closeModalById('modal-cell')">Annuler</button>
+    <button class="btn btn-primary" onclick="saveCellEdit()">💾 Confirmer</button>
+  </div>
+</div>
+</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+let educateurs = [];
+let plages = [];
+let reglesLegales = getDefaultLegalRules();
+let reglesInternes = getDefaultInternalRules();
+let reglesCustom = [];
+let horaire = {}; // { "2025-01": { "2025-01-06": { plageId: [educId,...] } } }
+let absences = []; // { id, educId, debut, fin, type, note }
+let currentMonth = new Date().toISOString().slice(0,7);
+let selectedPlageColor = '#2a5fc8';
+let cellEditContext = {};
+
+const JOURS_LABELS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+const CONTRAT_HEURES = {'temps-plein':38,'4/5':30.4,'3/4':28.5,'mi-temps':19,'personnalise':null};
+const AVATAR_COLORS = ['#2a5fc8','#2a8a5c','#c8622a','#7a3fc8','#c82a2a','#e8920a','#1a8a8a','#6a8a2a','#8a2a6a','#3a6a8a'];
+
+// ============================================================
+// INIT
+// ============================================================
+window.onload = () => {
+  const now = new Date();
+  document.getElementById('gen-mois').value = now.toISOString().slice(0,7);
+  currentMonth = now.toISOString().slice(0,7);
+  loadFromStorage();
+  renderAll();
+  initColorSwatches();
+  renderRules();
+  updateMonthLabel();
+};
+
+function renderAll() {
+  renderEducGrid();
+  renderPlageList();
+  renderAbsenceList();
+  renderAbsEduc();
+  renderHoraireMonth();
+  document.getElementById('nb-educ').textContent = educateurs.length;
+  document.getElementById('nb-plages').textContent = plages.length;
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+function nav(page) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (page==='horaire') renderHoraireMonth();
+  if (page==='absences') renderAbsEduc();
+}
+
+function innerTab(el, targetId) {
+  const parent = el.parentElement;
+  parent.querySelectorAll('.inner-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  const container = parent.nextElementSibling.parentElement || parent.parentElement;
+  // find siblings with display
+  const sections = ['vue-educ','vue-jour','vue-heures','regles-legales','regles-internes','regles-custom'];
+  sections.forEach(id=>{
+    const el2 = document.getElementById(id);
+    if(el2) el2.style.display = 'none';
+  });
+  const target = document.getElementById(targetId);
+  if(target) target.style.display = '';
+  if(targetId==='vue-educ') renderTableEduc();
+  if(targetId==='vue-jour') renderTableJour();
+  if(targetId==='vue-heures') renderTableHeures();
+}
+
+// ============================================================
+// ÉDUCATEURS
+// ============================================================
+function openAddEduc() {
+  document.getElementById('educ-edit-id').value = '';
+  document.getElementById('modal-educ-title').textContent = 'Nouvel éducateur';
+  document.getElementById('educ-prenom').value = '';
+  document.getElementById('educ-nom').value = '';
+  document.getElementById('educ-contrat').value = 'temps-plein';
+  document.getElementById('educ-heures').value = '';
+  document.getElementById('educ-notes').value = '';
+  document.querySelectorAll('.educ-jour').forEach(c=>c.checked = [0,1,2,3,4].includes(+c.value));
+  renderEducPrefsInModal();
+  document.getElementById('modal-educ').style.display = 'flex';
+}
+
+function openEditEduc(id) {
+  const e = educateurs.find(x=>x.id===id);
+  if(!e) return;
+  document.getElementById('educ-edit-id').value = id;
+  document.getElementById('modal-educ-title').textContent = 'Modifier ' + e.prenom + ' ' + e.nom;
+  document.getElementById('educ-prenom').value = e.prenom;
+  document.getElementById('educ-nom').value = e.nom;
+  document.getElementById('educ-contrat').value = e.contrat;
+  document.getElementById('educ-heures').value = e.heuresPersonnalise||'';
+  document.getElementById('educ-notes').value = e.notes||'';
+  document.querySelectorAll('.educ-jour').forEach(c=>c.checked = e.jours.includes(+c.value));
+  renderEducPrefsInModal(e.prefs, e.excls);
+  document.getElementById('modal-educ').style.display = 'flex';
+}
+
+function renderEducPrefsInModal(prefs=[], excls=[]) {
+  const prefList = document.getElementById('educ-prefs-list');
+  const exclList = document.getElementById('educ-excls-list');
+  if(!plages.length) {
+    prefList.innerHTML = '<span style="color:var(--ink3);font-size:0.8rem">Définissez d\'abord des plages horaires.</span>';
+    exclList.innerHTML = '';
+    return;
+  }
+  prefList.innerHTML = plages.map(p=>`<label class="check-label"><input type="checkbox" class="educ-pref" value="${p.id}" ${prefs.includes(p.id)?'checked':''}><span>${p.nom}</span></label>`).join('');
+  exclList.innerHTML = plages.map(p=>`<label class="check-label"><input type="checkbox" class="educ-excl" value="${p.id}" ${excls.includes(p.id)?'checked':''}><span>${p.nom}</span></label>`).join('');
+}
+
+function saveEduc() {
+  const prenom = document.getElementById('educ-prenom').value.trim();
+  const nom = document.getElementById('educ-nom').value.trim();
+  if(!prenom||!nom) { alert('Prénom et nom requis.'); return; }
+  const jours = [...document.querySelectorAll('.educ-jour:checked')].map(c=>+c.value);
+  const prefs = [...document.querySelectorAll('.educ-pref:checked')].map(c=>+c.value);
+  const excls = [...document.querySelectorAll('.educ-excl:checked')].map(c=>+c.value);
+  const contrat = document.getElementById('educ-contrat').value;
+  const heuresPersonnalise = +document.getElementById('educ-heures').value||null;
+  const notes = document.getElementById('educ-notes').value.trim();
+  const editId = document.getElementById('educ-edit-id').value;
+
+  if(editId) {
+    const idx = educateurs.findIndex(e=>e.id==editId);
+    if(idx>=0) educateurs[idx] = {...educateurs[idx], prenom, nom, contrat, heuresPersonnalise, jours, prefs, excls, notes};
+  } else {
+    educateurs.push({id:Date.now(), prenom, nom, contrat, heuresPersonnalise, jours, prefs, excls, notes, color: AVATAR_COLORS[educateurs.length % AVATAR_COLORS.length]});
+  }
+  saveToStorage();
+  renderAll();
+  closeModalById('modal-educ');
+}
+
+function removeEduc(id) {
+  if(!confirm('Supprimer cet éducateur ?')) return;
+  educateurs = educateurs.filter(e=>e.id!==id);
+  saveToStorage(); renderAll();
+}
+
+function renderEducGrid() {
+  const grid = document.getElementById('educ-grid');
+  document.getElementById('nb-educ').textContent = educateurs.length;
+  if(!educateurs.length) { grid.innerHTML='<div class="empty-state"><div class="icon">👤</div><p>Aucun éducateur encore.<br>Cliquez sur "+ Nouvel éducateur".</p></div>'; return; }
+  grid.innerHTML = educateurs.map(e=>{
+    const initials = (e.prenom[0]||'') + (e.nom[0]||'');
+    const heures = e.contrat==='personnalise' ? (e.heuresPersonnalise||'?')+'h' : CONTRAT_HEURES[e.contrat]+'h';
+    const prefNames = (e.prefs||[]).map(id=>{ const p=plages.find(x=>x.id===id); return p?`<span class="badge badge-blue">${p.nom}</span>`:''; }).join('');
+    const exclNames = (e.excls||[]).map(id=>{ const p=plages.find(x=>x.id===id); return p?`<span class="badge badge-red">❌ ${p.nom}</span>`:''; }).join('');
+    const joursLabel = e.jours.map(j=>JOURS_LABELS[j]).join(' ');
+    return `<div class="educ-card">
+      <div class="educ-top">
+        <div class="educ-avatar" style="background:${e.color||'#2a5fc8'}">${initials.toUpperCase()}</div>
+        <div style="flex:1">
+          <div class="educ-name">${e.prenom} ${e.nom}</div>
+          <div class="educ-contract">${e.contrat} · ${heures}/sem · ${joursLabel}</div>
+        </div>
+        <div class="educ-actions">
+          <button class="btn btn-outline btn-icon btn-sm" onclick="openEditEduc(${e.id})" title="Modifier">✏️</button>
+          <button class="btn btn-danger btn-icon btn-sm" onclick="removeEduc(${e.id})" title="Supprimer">🗑️</button>
+        </div>
+      </div>
+      <div class="educ-tags">${prefNames}${exclNames}</div>
+      ${e.notes?`<div style="font-size:0.73rem;color:var(--ink3);margin-top:8px;font-style:italic">"${e.notes}"</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// PLAGES HORAIRES
+// ============================================================
+function initColorSwatches() {
+  document.querySelectorAll('.swatch').forEach(s=>{
+    s.addEventListener('click',()=>{
+      document.querySelectorAll('.swatch').forEach(x=>x.classList.remove('selected'));
+      s.classList.add('selected');
+      selectedPlageColor = s.dataset.color;
+      document.getElementById('plage-color').value = selectedPlageColor;
+    });
+  });
+}
+
+function addPlage() {
+  const nom = document.getElementById('plage-nom').value.trim();
+  if(!nom) { alert('Donnez un nom à la plage.'); return; }
+  const debut = document.getElementById('plage-debut').value;
+  const fin = document.getElementById('plage-fin').value;
+  if(!debut||!fin) { alert('Heures requises.'); return; }
+  const jours = [...document.querySelectorAll('.plage-jour:checked')].map(c=>+c.value);
+  if(!jours.length) { alert('Sélectionnez au moins un jour.'); return; }
+  const min = +document.getElementById('plage-min').value;
+  const max = +document.getElementById('plage-max').value;
+  const type = document.getElementById('plage-type').value;
+  const color = document.getElementById('plage-color').value||selectedPlageColor;
+
+  // Calculer durée
+  const [dh,dm] = debut.split(':').map(Number);
+  const [fh,fm] = fin.split(':').map(Number);
+  let duree = (fh*60+fm) - (dh*60+dm);
+  if(duree<0) duree+=1440; // nuit
+  const dureeH = duree/60;
+
+  plages.push({id:Date.now(), nom, type, debut, fin, dureeH, jours, min, max, color});
+  saveToStorage(); renderAll();
+  // reset
+  document.getElementById('plage-nom').value='';
+  document.querySelectorAll('.plage-jour').forEach(c=>c.checked=false);
+}
+
+function removePlage(id) {
+  if(!confirm('Supprimer cette plage ?')) return;
+  plages = plages.filter(p=>p.id!==id);
+  saveToStorage(); renderAll();
+}
+
+function renderPlageList() {
+  const list = document.getElementById('plage-list');
+  document.getElementById('nb-plages').textContent = plages.length;
+  if(!plages.length) { list.innerHTML='<div class="empty-state"><div class="icon">🕐</div><p>Aucune plage définie.</p></div>'; return; }
+  list.innerHTML = plages.map(p=>{
+    const joursLabel = p.jours.map(j=>JOURS_LABELS[j]).join(', ');
+    return `<div class="plage-item">
+      <div class="plage-color" style="background:${p.color}"></div>
+      <div class="plage-info">
+        <div class="plage-name">${p.nom}</div>
+        <div class="plage-details">${p.debut} → ${p.fin} · ${p.dureeH.toFixed(1)}h · ${joursLabel} · ${p.min}–${p.max} éduc</div>
+      </div>
+      <div class="plage-actions">
+        <button class="btn btn-danger btn-sm" onclick="removePlage(${p.id})">Suppr.</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// RÈGLES
+// ============================================================
+function getDefaultLegalRules() {
+  return [
+    {id:'r1', nom:'Repos minimum entre 2 prestations', desc:'Repos obligatoire entre la fin d\'une prestation et le début de la suivante', type:'min_repos', value:11, unit:'heures', active:true},
+    {id:'r2', nom:'Max jours consécutifs', desc:'Nombre maximum de jours de travail d\'affilée', type:'max_consec', value:7, unit:'jours', active:true},
+    {id:'r3', nom:'Max heures par semaine', desc:'Plafond d\'heures de travail sur 7 jours glissants', type:'max_heures_semaine', value:48, unit:'heures', active:true},
+    {id:'r4', nom:'Max nuits consécutives', desc:'Nombre maximum de nuits de travail d\'affilée', type:'max_nuits_consec', value:5, unit:'nuits', active:true},
+    {id:'r5', nom:'Repos hebdomadaire minimum', desc:'Minimum de jours de repos par semaine', type:'min_repos_semaine', value:2, unit:'jours', active:true},
+  ];
+}
+function getDefaultInternalRules() {
+  return [
+    {id:'i1', nom:'Max week-ends travaillés par mois', desc:'Limitation des week-ends pour l\'équité', type:'max_we_mois', value:2, unit:'WE', active:true},
+    {id:'i2', nom:'Repos après nuit', desc:'Jours de repos obligatoires après une nuit de travail', type:'repos_apres_nuit', value:1, unit:'jours', active:true},
+    {id:'i3', nom:'Éviter nuit → matin le lendemain', desc:'Ne pas enchaîner une nuit avec une prestation matin', type:'eviter_nuit_matin', value:1, unit:'bool', active:true},
+  ];
+}
+
+function renderRules() {
+  renderRuleList('rules-list-legal', reglesLegales, 'legal');
+  renderRuleList('rules-list-internal', reglesInternes, 'internal');
+  renderRuleList('rules-list-custom', reglesCustom, 'custom');
+}
+
+function renderRuleList(containerId, rules, category) {
+  const el = document.getElementById(containerId);
+  if(!rules.length && category==='custom') { el.innerHTML='<div class="empty-state"><div class="icon">✏️</div><p>Aucune règle personnalisée.</p></div>'; return; }
+  el.innerHTML = rules.map(r=>`
+    <div class="rule-item">
+      <div class="rule-icon">${r.active?'✅':'⬜'}</div>
+      <div class="rule-info">
+        <div class="rule-name">${r.nom}</div>
+        <div class="rule-desc">${r.desc}</div>
+      </div>
+      <div class="rule-val">
+        <input type="number" value="${r.value}" min="0" max="200" style="width:70px" onchange="updateRule('${category}','${r.id}',this.value)">
+        <span style="font-size:0.75rem;color:var(--ink3)">${r.unit}</span>
+        <label class="check-label" style="border:none;padding:0"><input type="checkbox" ${r.active?'checked':''} onchange="toggleRule('${category}','${r.id}',this.checked)"><span></span></label>
+        ${category==='custom'?`<button class="btn btn-danger btn-icon btn-sm" onclick="removeRule('${r.id}')">✕</button>`:''}
+      </div>
+    </div>`).join('');
+}
+
+function updateRule(cat, id, val) {
+  const arr = cat==='legal'?reglesLegales:cat==='internal'?reglesInternes:reglesCustom;
+  const r = arr.find(x=>x.id===id); if(r) r.value=+val; saveToStorage();
+}
+function toggleRule(cat, id, active) {
+  const arr = cat==='legal'?reglesLegales:cat==='internal'?reglesInternes:reglesCustom;
+  const r = arr.find(x=>x.id===id); if(r) r.active=active; saveToStorage();
+}
+function removeRule(id) {
+  reglesCustom = reglesCustom.filter(r=>r.id!==id); saveToStorage(); renderRules();
+}
+function openAddRule() { document.getElementById('modal-rule').style.display='flex'; }
+function saveRule() {
+  const nom = document.getElementById('rule-nom').value.trim();
+  if(!nom) { alert('Nom requis'); return; }
+  reglesCustom.push({
+    id:'c'+Date.now(), nom, desc:document.getElementById('rule-desc').value,
+    type:document.getElementById('rule-type').value,
+    value:+document.getElementById('rule-val').value,
+    unit:'', active:true
+  });
+  saveToStorage(); renderRules(); closeModalById('modal-rule');
+}
+
+// ============================================================
+// ALGORITHME DE GÉNÉRATION
+// ============================================================
+function verifierAvantGen() {
+  const alerts = [];
+  if(!educateurs.length) alerts.push({type:'err',msg:'Aucun éducateur défini.'});
+  if(!plages.length) alerts.push({type:'err',msg:'Aucune plage horaire définie.'});
+  
+  const recap = document.getElementById('gen-recap-content');
+  const recapCard = document.getElementById('gen-recap');
+  recapCard.style.display='block';
+
+  let html = alerts.map(a=>`<div class="alert alert-${a.type}">⚠️ ${a.msg}</div>`).join('');
+  if(!alerts.length) {
+    html += `<div class="alert alert-ok">✅ Configuration valide. ${educateurs.length} éducateurs, ${plages.length} plages horaires.</div>`;
+    // Summary per plage
+    html += '<div style="margin-top:12px">';
+    plages.forEach(p=>{
+      const joursLabel = p.jours.map(j=>JOURS_LABELS[j]).join(', ');
+      html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:0.82rem">
+        <div style="width:10px;height:10px;border-radius:3px;background:${p.color}"></div>
+        <strong>${p.nom}</strong> · ${p.debut}→${p.fin} · ${p.min} éduc min · jours: ${joursLabel}
+      </div>`;
+    });
+    html += '</div>';
+  }
+  recap.innerHTML = html;
+}
+
+async function lancerGeneration() {
+  if(!educateurs.length || !plages.length) { verifierAvantGen(); return; }
+  const mois = document.getElementById('gen-mois').value;
+  if(!mois) { alert('Choisissez un mois.'); return; }
+
+  document.getElementById('gen-btn').disabled=true;
+  document.getElementById('gen-btn').innerHTML='<div class="spinner"></div> Génération…';
+  document.getElementById('gen-progress').style.display='block';
+  document.getElementById('gen-alerts').innerHTML='';
+
+  const log = document.getElementById('gen-log');
+  log.innerHTML='';
+  const addLog = (msg,progress)=>{ log.innerHTML+=msg+'<br>'; log.scrollTop=log.scrollHeight; if(progress) document.getElementById('gen-progress-bar').style.width=progress+'%'; };
+
+  addLog('🔍 Analyse de la configuration…',5);
+  await sleep(300);
+  addLog(`👥 ${educateurs.length} éducateurs chargés`,15);
+  await sleep(200);
+  addLog(`🕐 ${plages.length} plages horaires`,25);
+  await sleep(200);
+  addLog('📐 Construction du calendrier mensuel…',35);
+  await sleep(300);
+
+  const result = genererMois(mois, addLog);
+  await sleep(200);
+
+  if(!horaire[mois]) horaire[mois]={};
+  Object.assign(horaire[mois], result.planning);
+  currentMonth = mois;
+  saveToStorage();
+
+  addLog(`✅ Génération terminée !`,100);
+  await sleep(300);
+
+  if(result.warnings.length) {
+    result.warnings.forEach(w=>addLog(`⚠️ ${w}`, null));
+  }
+
+  document.getElementById('gen-btn').disabled=false;
+  document.getElementById('gen-btn').innerHTML='⚡ Générer l\'horaire';
+
+  showAlertIn('gen-alerts','ok',`Horaire de ${new Date(mois+'-01').toLocaleDateString('fr-BE',{month:'long',year:'numeric'})} généré ! Consultez l'onglet "Horaire mensuel".`);
+  renderHoraireMonth();
+}
+
+function genererMois(moisStr, addLog) {
+  const [year,month] = moisStr.split('-').map(Number);
+  const jours = getDaysOfMonth(year, month);
+  const planning = {};
+  const warnings = [];
+
+  // Track per educ
+  const tracker = {};
+  educateurs.forEach(e=>{ tracker[e.id]={ totalH:0, nuits:0, weJours:0, consec:0, lastDay:null, totalJours:0 }; });
+
+  // Get active rules
+  const allRules = [...reglesLegales,...reglesInternes,...reglesCustom].filter(r=>r.active);
+  const getRule = (type, def) => { const r=allRules.find(x=>x.type===type); return r?r.value:def; };
+  const minRepos = getRule('min_repos',11);
+  const maxConsec = getRule('max_consec',7);
+  const maxHeuresSem = getRule('max_heures_semaine',48);
+  const maxWeMois = getRule('max_we_mois',2);
+  const reposApresNuit = getRule('repos_apres_nuit',1);
+  const maxNuitsConsec = getRule('max_nuits_consec',5);
+
+  const isNuit = (p) => p.type==='nuit' || p.debut>='22:00' || p.fin<='07:00';
+  const isWE = (d) => d.getDay()===0 || d.getDay()===6;
+
+  // Last assignment per educ: {dateStr, plageId, fin}
+  const lastAssign = {};
+  educateurs.forEach(e=>{ lastAssign[e.id]=null; });
+
+  jours.forEach((dateObj, dayIdx) => {
+    const dateStr = dateObj.toISOString().split('T')[0];
+    const dayOfWeek = dateObj.getDay()===0?6:dateObj.getDay()-1; // 0=lun..6=dim
+    planning[dateStr] = {};
+
+    // Plages applicables ce jour
+    const plagesJour = plages.filter(p=>p.jours.includes(dayOfWeek));
+
+    if(addLog && dayIdx % 7 === 0) addLog(`📅 Semaine du ${dateStr}…`, 35+Math.round((dayIdx/jours.length)*60));
+
+    plagesJour.forEach(plage=>{
+      // Candidates
+      const candidates = educateurs.filter(educ=>{
+        // Jours de travail
+        if(!educ.jours.includes(dayOfWeek)) return false;
+        // Absence
+        if(isAbsent(educ.id, dateStr)) return false;
+        // Refus plage
+        if((educ.excls||[]).includes(plage.id)) return false;
+        // Règle max consec
+        const t = tracker[educ.id];
+        if(t.consec >= maxConsec) return false;
+        // WE
+        if(isWE(dateObj) && t.weJours >= maxWeMois*2) return false;
+        // Repos minimum entre prestations
+        if(lastAssign[educ.id]) {
+          const lastFin = lastAssign[educ.id].fin;
+          const lastDate = lastAssign[educ.id].date;
+          const lastFinDt = new Date(lastDate + 'T' + (lastFin>='24:00'?'00:00':lastFin));
+          if(lastFin>='24:00' || lastFin<='06:00') lastFinDt.setDate(lastFinDt.getDate()+1);
+          const debutDt = new Date(dateStr + 'T' + plage.debut);
+          const diffH = (debutDt - lastFinDt) / 3600000;
+          if(diffH < minRepos && diffH >= 0) return false;
+        }
+        // Repos apres nuit
+        if(lastAssign[educ.id]?.isNuit && reposApresNuit>0) {
+          const lastDate = new Date(lastAssign[educ.id].date);
+          const diff = Math.round((dateObj-lastDate)/86400000);
+          if(diff <= reposApresNuit) return false;
+        }
+        // Nuits consec
+        if(isNuit(plage)) {
+          if(t.nuitsConsec >= maxNuitsConsec) return false;
+        }
+        return true;
+      });
+
+      // Score
+      const scored = candidates.map(educ=>{
+        const t = tracker[educ.id];
+        let score = 0;
+        // Equité heures
+        const targetH = getTargetH(educ);
+        const ratio = t.totalH / Math.max(1, targetH);
+        score += ratio * 20;
+        // Equité WE
+        if(isWE(dateObj)) score += t.weJours * 5;
+        // Equité nuits
+        if(isNuit(plage)) score += t.nuits * 4;
+        // Preferences
+        if((educ.prefs||[]).includes(plage.id)) score -= 8;
+        // Déjà travaillé ce jour (éviter doublons sauf si nécessaire)
+        const alreadyToday = Object.values(planning[dateStr]||{}).some(ids=>ids.includes(educ.id));
+        if(alreadyToday) score += 12;
+        return {educ, score};
+      }).sort((a,b)=>a.score-b.score);
+
+      const assigned = scored.slice(0, plage.min).map(x=>x.educ);
+      planning[dateStr][plage.id] = assigned.map(e=>e.id);
+
+      if(assigned.length < plage.min) {
+        warnings.push(`${dateStr} · ${plage.nom}: ${plage.min - assigned.length} éduc manquant(s)`);
+      }
+
+      // Update tracker
+      assigned.forEach(educ=>{
+        const t = tracker[educ.id];
+        t.totalH += plage.dureeH;
+        t.totalJours++;
+        if(isNuit(plage)) { t.nuits++; t.nuitsConsec=(t.nuitsConsec||0)+1; } else t.nuitsConsec=0;
+        if(isWE(dateObj) && !planning[dateStr+'_we_counted']?.includes(educ.id)) {
+          t.weJours++;
+        }
+        // Consecutive
+        if(t.lastDay) {
+          const diff = Math.round((dateObj - new Date(t.lastDay))/86400000);
+          if(diff===1) t.consec++; else t.consec=1;
+        } else t.consec=1;
+        t.lastDay = dateStr;
+        lastAssign[educ.id] = {date:dateStr, fin:plage.fin, isNuit:isNuit(plage)};
+      });
+    });
+  });
+
+  return {planning, warnings};
+}
+
+function getDaysOfMonth(year, month) {
+  const days=[];
+  const d = new Date(year, month-1, 1);
+  while(d.getMonth()===month-1) { days.push(new Date(d)); d.setDate(d.getDate()+1); }
+  return days;
+}
+
+function getTargetH(educ) {
+  if(educ.contrat==='personnalise') return educ.heuresPersonnalise||38;
+  return CONTRAT_HEURES[educ.contrat]||38;
+}
+
+function isAbsent(educId, dateStr) {
+  return absences.some(a=>a.educId===educId && dateStr>=a.debut && dateStr<=a.fin);
+}
+
+// ============================================================
+// RENDER HORAIRE
+// ============================================================
+function changeMonth(delta) {
+  const [y,m] = currentMonth.split('-').map(Number);
+  const d = new Date(y,m-1+delta,1);
+  currentMonth = d.toISOString().slice(0,7);
+  updateMonthLabel();
+  renderHoraireMonth();
+}
+
+function updateMonthLabel() {
+  const [y,m] = currentMonth.split('-').map(Number);
+  const label = new Date(y,m-1,1).toLocaleDateString('fr-BE',{month:'long',year:'numeric'});
+  const el = document.getElementById('horaire-month-label');
+  if(el) el.textContent = label.charAt(0).toUpperCase()+label.slice(1);
+}
+
+function renderHoraireMonth() {
+  updateMonthLabel();
+  renderTableEduc();
+  renderHoraireStats();
+  checkHoraireViolations();
+}
+
+function renderTableEduc() {
+  const [y,m] = currentMonth.split('-').map(Number);
+  const jours = getDaysOfMonth(y,m);
+  const planning = horaire[currentMonth]||{};
+  const el = document.getElementById('table-educ');
+  if(!el) return;
+
+  if(!educateurs.length || !plages.length) { el.innerHTML='<div class="empty-state"><p>Générez d\'abord un horaire.</p></div>'; return; }
+
+  let html = `<table class="schedule-table"><thead><tr><th class="educ-row-head">Éducateur</th>`;
+  jours.forEach(d=>{
+    const dow = d.getDay();
+    const isWE = dow===0||dow===6;
+    html+=`<th class="${isWE?'we':''}">${JOURS_LABELS[dow===0?6:dow-1]}<br><small style="font-weight:400">${d.getDate()}</small></th>`;
+  });
+  html+='</tr></thead><tbody>';
+
+  educateurs.forEach(educ=>{
+    html+=`<tr><td class="educ-row-head"><div style="display:flex;align-items:center;gap:8px"><div class="educ-avatar" style="background:${educ.color||'#2a5fc8'};width:28px;height:28px;font-size:0.7rem">${(educ.prenom[0]+educ.nom[0]).toUpperCase()}</div><span>${educ.prenom} ${educ.nom}</span></div></td>`;
+    jours.forEach(d=>{
+      const dateStr=d.toISOString().split('T')[0];
+      const dow=d.getDay(); const isWE=dow===0||dow===6;
+      if(isAbsent(educ.id, dateStr)) {
+        const abs=absences.find(a=>a.educId===educ.id&&dateStr>=a.debut&&dateStr<=a.fin);
+        html+=`<td class="${isWE?'we-col':''}"><div class="cell-absent">${abs?.type==='conge'?'🌴':abs?.type==='maladie'?'🤒':'🔄'}</div></td>`;
+        return;
+      }
+      const dayPlanning = planning[dateStr]||{};
+      const mySlots = plages.filter(p=>dayPlanning[p.id]?.includes(educ.id));
+      if(!mySlots.length) {
+        html+=`<td class="${isWE?'we-col':''}"><div class="cell-off">—</div></td>`;
+      } else {
+        html+=`<td class="${isWE?'we-col':''}" onclick="openCellEdit('${dateStr}','${educ.id}')" style="cursor:pointer">`;
+        mySlots.forEach(p=>{ html+=`<div class="cell-slot" style="background:${p.color}22;color:${p.color};border:1px solid ${p.color}44">${p.nom}</div>`; });
+        html+='</td>';
+      }
+    });
+    html+='</tr>';
+  });
+  html+='</tbody></table>';
+  el.innerHTML=html;
+}
+
+function renderTableJour() {
+  const [y,m] = currentMonth.split('-').map(Number);
+  const jours = getDaysOfMonth(y,m);
+  const planning = horaire[currentMonth]||{};
+  const el = document.getElementById('table-jour');
+  if(!el) return;
+
+  let html=`<table class="schedule-table"><thead><tr><th>Plage</th>`;
+  jours.forEach(d=>{
+    const dow=d.getDay(); const isWE=dow===0||dow===6;
+    html+=`<th class="${isWE?'we':''}">${JOURS_LABELS[dow===0?6:dow-1]}<br><small style="font-weight:400">${d.getDate()}</small></th>`;
+  });
+  html+='</tr></thead><tbody>';
+
+  plages.forEach(plage=>{
+    html+=`<tr><td class="educ-row-head"><div style="display:flex;align-items:center;gap:6px"><div style="width:8px;height:8px;border-radius:3px;background:${plage.color}"></div>${plage.nom}<br><small style="color:var(--ink3)">${plage.debut}→${plage.fin}</small></div></td>`;
+    jours.forEach(d=>{
+      const dateStr=d.toISOString().split('T')[0];
+      const dow=d.getDay(); const isWE=dow===0||dow===6;
+      const dayOfWeek=dow===0?6:dow-1;
+      if(!plage.jours.includes(dayOfWeek)) { html+=`<td class="${isWE?'we-col':''}"><div class="cell-off" style="font-size:0.65rem">—</div></td>`; return; }
+      const ids=(planning[dateStr]||{})[plage.id]||[];
+      const names=ids.map(id=>{ const e=educateurs.find(x=>x.id===id); return e?`<div class="cell-slot" style="background:${plage.color}22;color:${plage.color};border:1px solid ${plage.color}44">${e.prenom}</div>`:''; }).join('');
+      const missing=plage.min-ids.length;
+      const missingHtml=missing>0?`<div class="cell-slot" style="background:#fdeaea;color:#c82a2a;border:1px solid #f5b3b3">⚠️${missing}</div>`:'';
+      html+=`<td class="${isWE?'we-col':''}">${names||''}${missingHtml}</td>`;
+    });
+    html+='</tr>';
+  });
+  html+='</tbody></table>';
+  el.innerHTML=html;
+}
+
+function renderTableHeures() {
+  const [y,m] = currentMonth.split('-').map(Number);
+  const jours = getDaysOfMonth(y,m);
+  const planning = horaire[currentMonth]||{};
+  const el = document.getElementById('table-heures');
+  if(!el) return;
+
+  const stats = educateurs.map(educ=>{
+    let totalH=0, jTravail=0, nuits=0, we=0;
+    const targetH = getTargetH(educ)*4; // mois ~4 sem
+    jours.forEach(d=>{
+      const dateStr=d.toISOString().split('T')[0];
+      const dow=d.getDay(); const isWE=dow===0||dow===6;
+      let travailled=false;
+      plages.forEach(p=>{
+        if((planning[dateStr]||{})[p.id]?.includes(educ.id)){
+          totalH+=p.dureeH; travailled=true;
+          if(p.type==='nuit'||p.debut>='22:00') nuits++;
+          if(isWE) we++;
+        }
+      });
+      if(travailled) jTravail++;
+    });
+    const ratio=Math.min(1,totalH/Math.max(1,targetH));
+    return {educ, totalH, jTravail, nuits, we, targetH, ratio};
+  });
+
+  let html=`<table style="width:100%;border-collapse:collapse;font-size:0.83rem">
+  <thead><tr style="background:var(--ink);color:#fff">
+    <th style="padding:10px 12px;text-align:left">Éducateur</th>
+    <th style="padding:10px 8px">Contrat</th>
+    <th style="padding:10px 8px">Heures travaillées</th>
+    <th style="padding:10px 8px">Jours</th>
+    <th style="padding:10px 8px">Nuits</th>
+    <th style="padding:10px 8px">WE</th>
+    <th style="padding:10px 8px">Progression</th>
+  </tr></thead><tbody>`;
+  stats.forEach((s,i)=>{
+    const color=s.ratio>1?'var(--red)':s.ratio>0.9?'var(--green)':'var(--orange)';
+    html+=`<tr style="background:${i%2===0?'var(--surface)':'var(--surface2)'}">
+      <td style="padding:10px 12px;font-weight:600">${s.educ.prenom} ${s.educ.nom}</td>
+      <td style="padding:8px;text-align:center"><span class="badge badge-blue">${s.educ.contrat}</span></td>
+      <td style="padding:8px;text-align:center;font-weight:700;color:${color}">${s.totalH.toFixed(1)}h <small style="font-weight:400;color:var(--ink3)">/ ~${s.targetH.toFixed(0)}h</small></td>
+      <td style="padding:8px;text-align:center">${s.jTravail}</td>
+      <td style="padding:8px;text-align:center">${s.nuits}</td>
+      <td style="padding:8px;text-align:center">${s.we}</td>
+      <td style="padding:8px;min-width:100px"><div class="progress-bar"><div class="progress-fill" style="width:${Math.min(100,s.ratio*100).toFixed(0)}%;background:${color}"></div></div></td>
+    </tr>`;
+  });
+  html+='</tbody></table>';
+  el.innerHTML=html;
+}
+
+function renderHoraireStats() {
+  const [y,m] = currentMonth.split('-').map(Number);
+  const jours = getDaysOfMonth(y,m);
+  const planning = horaire[currentMonth]||{};
+  let totalAssign=0, totalMissing=0, totalNuits=0;
+  jours.forEach(d=>{
+    const dateStr=d.toISOString().split('T')[0];
+    plages.forEach(p=>{
+      const ids=(planning[dateStr]||{})[p.id]||[];
+      totalAssign+=ids.length;
+      if(ids.length<p.min) totalMissing+=p.min-ids.length;
+      if(p.type==='nuit') totalNuits+=ids.length;
+    });
+  });
+  const el = document.getElementById('horaire-stats');
+  if(el) el.innerHTML=`
+    <div class="stat-card"><div class="stat-val" style="color:var(--accent)">${educateurs.length}</div><div class="stat-label">Éducateurs</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--blue)">${jours.length}</div><div class="stat-label">Jours planifiés</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--green)">${totalAssign}</div><div class="stat-label">Assignations</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:var(--purple)">${totalNuits}</div><div class="stat-label">Nuits couvertes</div></div>
+    <div class="stat-card"><div class="stat-val" style="color:${totalMissing?'var(--red)':'var(--green)'}">${totalMissing}</div><div class="stat-label">Postes manquants</div></div>
+  `;
+}
+
+function checkHoraireViolations() {
+  const el = document.getElementById('horaire-alerts');
+  if(!el) return;
+  const [y,m] = currentMonth.split('-').map(Number);
+  const jours = getDaysOfMonth(y,m);
+  const planning = horaire[currentMonth]||{};
+  const warns=[];
+  jours.forEach(d=>{
+    const dateStr=d.toISOString().split('T')[0];
+    plages.forEach(p=>{
+      const ids=(planning[dateStr]||{})[p.id]||[];
+      if(ids.length<p.min) warns.push(`${dateStr} — ${p.nom}: seulement ${ids.length}/${p.min} éduc`);
+    });
+  });
+  if(!warns.length) { el.innerHTML=''; return; }
+  el.innerHTML=`<div class="alert alert-warn">⚠️ ${warns.length} poste(s) sous-couvert(s) ce mois. <span onclick="this.parentElement.nextElementSibling?.classList.toggle('hidden')" style="cursor:pointer;text-decoration:underline">Voir détails</span></div>
+  <div style="font-size:0.77rem;color:var(--ink3);margin-bottom:12px">${warns.slice(0,10).join(' · ')}</div>`;
+}
+
+// CELL EDIT
+function openCellEdit(dateStr, educId) {
+  const educ = educateurs.find(e=>e.id==educId);
+  if(!educ) return;
+  cellEditContext = {dateStr, educId};
+  document.getElementById('cell-modal-title').textContent = `${educ.prenom} ${educ.nom} — ${new Date(dateStr).toLocaleDateString('fr-BE',{weekday:'long',day:'numeric',month:'long'})}`;
+  document.getElementById('cell-modal-sub').textContent = 'Modifiez les prestations assignées manuellement.';
+
+  const planning = (horaire[currentMonth]||{})[dateStr]||{};
+  const dayOfWeek = new Date(dateStr).getDay(); const dow = dayOfWeek===0?6:dayOfWeek-1;
+  const plagesJour = plages.filter(p=>p.jours.includes(dow));
+
+  let html='';
+  plagesJour.forEach(p=>{
+    const isAssigned = (planning[p.id]||[]).includes(+educId);
+    html+=`<label class="check-label" style="margin-bottom:8px;display:flex">
+      <input type="checkbox" class="cell-plage-check" value="${p.id}" ${isAssigned?'checked':''}>
+      <span style="display:flex;align-items:center;gap:6px"><div style="width:8px;height:8px;border-radius:3px;background:${p.color}"></div>${p.nom} (${p.debut}→${p.fin})</span>
+    </label>`;
+  });
+  document.getElementById('cell-modal-content').innerHTML = html||'<p class="text-muted">Aucune plage ce jour.</p>';
+  document.getElementById('modal-cell').style.display='flex';
+}
+
+function saveCellEdit() {
+  const {dateStr, educId} = cellEditContext;
+  if(!horaire[currentMonth]) horaire[currentMonth]={};
+  if(!horaire[currentMonth][dateStr]) horaire[currentMonth][dateStr]={};
+  const checked = [...document.querySelectorAll('.cell-plage-check:checked')].map(c=>+c.value);
+  const unchecked = [...document.querySelectorAll('.cell-plage-check:not(:checked)')].map(c=>+c.value);
+  checked.forEach(pid=>{
+    if(!horaire[currentMonth][dateStr][pid]) horaire[currentMonth][dateStr][pid]=[];
+    if(!horaire[currentMonth][dateStr][pid].includes(+educId)) horaire[currentMonth][dateStr][pid].push(+educId);
+  });
+  unchecked.forEach(pid=>{
+    if(horaire[currentMonth][dateStr][pid]) horaire[currentMonth][dateStr][pid]=horaire[currentMonth][dateStr][pid].filter(id=>id!==+educId);
+  });
+  saveToStorage(); renderHoraireMonth(); closeModalById('modal-cell');
+}
+
+// ============================================================
+// ABSENCES
+// ============================================================
+function renderAbsEduc() {
+  const sel = document.getElementById('abs-educ');
+  if(!sel) return;
+  sel.innerHTML='<option value="">-- Choisir --</option>'+educateurs.map(e=>`<option value="${e.id}">${e.prenom} ${e.nom}</option>`).join('');
+}
+
+function addAbsence() {
+  const educId = +document.getElementById('abs-educ').value;
+  const debut = document.getElementById('abs-debut').value;
+  const fin = document.getElementById('abs-fin').value;
+  const type = document.getElementById('abs-type').value;
+  const note = document.getElementById('abs-note').value.trim();
+  if(!educId||!debut||!fin) { alert('Complétez tous les champs.'); return; }
+  if(debut>fin) { alert('La date de début doit être avant la fin.'); return; }
+  absences.push({id:Date.now(), educId, debut, fin, type, note});
+  saveToStorage(); renderAbsenceList();
+}
+
+function removeAbsence(id) {
+  absences=absences.filter(a=>a.id!==id); saveToStorage(); renderAbsenceList();
+}
+
+function renderAbsenceList() {
+  const el = document.getElementById('abs-list');
+  if(!el) return;
+  if(!absences.length) { el.innerHTML='<div class="empty-state"><div class="icon">✅</div><p>Aucune absence encodée.</p></div>'; return; }
+  const typeLabel={conge:'🌴 Congé',maladie:'🤒 Maladie',recuperation:'🔄 Récup.',formation:'📚 Formation',autre:'📌 Autre'};
+  el.innerHTML=absences.map(a=>{
+    const educ=educateurs.find(e=>e.id===a.educId);
+    return `<div class="plage-item">
+      <div style="font-size:1.2rem">${typeLabel[a.type]?.split(' ')[0]||'📌'}</div>
+      <div class="plage-info">
+        <div class="plage-name">${educ?`${educ.prenom} ${educ.nom}`:'Inconnu'} — ${typeLabel[a.type]||a.type}</div>
+        <div class="plage-details">${a.debut} → ${a.fin}${a.note?' · '+a.note:''}</div>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="removeAbsence(${a.id})">Suppr.</button>
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// EXPORT / IMPORT
+// ============================================================
+function exportData() {
+  const data = JSON.stringify({educateurs, plages, reglesLegales, reglesInternes, reglesCustom, horaire, absences}, null, 2);
+  const blob = new Blob([data], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `planeduc_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+}
+
+function triggerImport() { document.getElementById('import-file').click(); }
+function importData(e) {
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const d = JSON.parse(ev.target.result);
+      if(d.educateurs) educateurs=d.educateurs;
+      if(d.plages) plages=d.plages;
+      if(d.reglesLegales) reglesLegales=d.reglesLegales;
+      if(d.reglesInternes) reglesInternes=d.reglesInternes;
+      if(d.reglesCustom) reglesCustom=d.reglesCustom;
+      if(d.horaire) horaire=d.horaire;
+      if(d.absences) absences=d.absences;
+      saveToStorage(); renderAll(); renderRules();
+      alert('✅ Données importées avec succès !');
+    } catch(err) { alert('❌ Fichier invalide.'); }
+  };
+  reader.readAsText(file);
+  e.target.value='';
+}
+
+function exportHorairePDF() {
+  const [y,m] = currentMonth.split('-').map(Number);
+  const jours = getDaysOfMonth(y,m);
+  const planning = horaire[currentMonth]||{};
+  let csv = 'Éducateur,' + jours.map(d=>d.toISOString().split('T')[0]).join(',') + '\n';
+  educateurs.forEach(educ=>{
+    const row = [educ.prenom+' '+educ.nom];
+    jours.forEach(d=>{
+      const dateStr=d.toISOString().split('T')[0];
+      if(isAbsent(educ.id, dateStr)) { row.push('ABSENT'); return; }
+      const slots=plages.filter(p=>(planning[dateStr]||{})[p.id]?.includes(educ.id)).map(p=>p.nom);
+      row.push(slots.join(' + ')||'REPOS');
+    });
+    csv += row.join(',') + '\n';
+  });
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`horaire_${currentMonth}.csv`;
+  a.click();
+}
+
+// ============================================================
+// UTILS
+// ============================================================
+function sleep(ms) { return new Promise(r=>setTimeout(r,ms)); }
+
+function showAlertIn(id, type, msg) {
+  const icons={ok:'✅',warn:'⚠️',err:'❌',info:'ℹ️'};
+  document.getElementById(id).innerHTML=`<div class="alert alert-${type}">${icons[type]} ${msg}</div>`;
+}
+
+function closeModal(e, id) { if(e.target===e.currentTarget) closeModalById(id); }
+function closeModalById(id) { document.getElementById(id).style.display='none'; }
+
+function saveToStorage() {
+  try { localStorage.setItem('planeduc_v2', JSON.stringify({educateurs,plages,reglesLegales,reglesInternes,reglesCustom,horaire,absences})); } catch(e){}
+}
+
+function loadFromStorage() {
+  try {
+    const d = JSON.parse(localStorage.getItem('planeduc_v2')||'{}');
+    if(d.educateurs?.length) educateurs=d.educateurs;
+    if(d.plages?.length) plages=d.plages;
+    if(d.reglesLegales?.length) reglesLegales=d.reglesLegales;
+    if(d.reglesInternes?.length) reglesInternes=d.reglesInternes;
+    if(d.reglesCustom) reglesCustom=d.reglesCustom;
+    if(d.horaire) horaire=d.horaire;
+    if(d.absences) absences=d.absences;
+  } catch(e){}
+}
+</script>
+
+</body>
+</html>
