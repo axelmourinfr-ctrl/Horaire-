@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PlanEduc Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="brand"><h1>PlanEduc Pro</h1><p>Gestion horaires éducateurs</p></div>
+  <div class="nav-sec">Configuration</div>
+  <div class="nav-item active" onclick="nav(this,'educateurs')"><span>👥</span> Éducateurs <span class="nav-badge" id="nb-educ">0</span></div>
+  <div class="nav-item" onclick="nav(this,'plages')"><span>🕐</span> Plages horaires <span class="nav-badge" id="nb-plages">0</span></div>
+  <div class="nav-item" onclick="nav(this,'regles')"><span>⚖️</span> Règles & Lois</div>
+  <div class="nav-sec">Planification</div>
+  <div class="nav-item" onclick="nav(this,'generer')"><span>⚡</span> Générer</div>
+  <div class="nav-item" onclick="nav(this,'horaire')"><span>📅</span> Horaire mensuel</div>
+  <div class="nav-item" onclick="nav(this,'fiche')"><span>📋</span> Fiche individuelle</div>
+  <div class="nav-item" onclick="nav(this,'soldes')"><span>⏱️</span> Soldes heures</div>
+  <div class="nav-item" onclick="nav(this,'stats')"><span>📊</span> Stats prestations</div>
+  <div class="nav-item" onclick="nav(this,'feries')"><span>🎉</span> Jours fériés</div>
+  <div class="nav-item" onclick="nav(this,'absences')"><span>🏥</span> Absences</div>
+  <div class="nav-sec">Données</div>
+  <div class="nav-item" onclick="exportData()"><span>💾</span> Exporter JSON</div>
+  <div class="nav-item" onclick="document.getElementById('imp').click()"><span>📂</span> Importer JSON</div>
+  <div class="nav-item" onclick="resetHoraires()" style="color:#f0a060"><span>🗓️</span> Effacer les horaires</div>
+  <div class="nav-item" onclick="resetAll()" style="color:#f08080"><span>🗑️</span> Tout réinitialiser</div>
+  <input type="file" id="imp" accept=".json" style="display:none" onchange="importData(event)">
+  <div class="nav-bottom">Sauvegarde auto · localStorage</div>
+</aside>
+
+<!-- MAIN CONTENT -->
+<main class="main">
+
+<!-- ===== ÉDUCATEURS ===== -->
+<div id="page-educateurs" class="page active">
+  <div class="page-title">👥 Éducateurs</div>
+  <div class="page-sub">Gérez l'équipe, les contrats et les préférences.</div>
+  <div class="card">
+    <div class="card-hd">
+      <div class="card-title">Équipe</div>
+      <button class="btn btn-primary btn-sm" onclick="openModal('modal-educ',resetEducForm)">+ Nouvel éducateur</button>
+    </div>
+    <div id="educ-grid" class="educ-grid"><div class="empty"><div class="icon">👤</div><p>Aucun éducateur.<br>Cliquez sur "+ Nouvel éducateur".</p></div></div>
+  </div>
+</div>
+
+<!-- ===== PLAGES ===== -->
+<div id="page-plages" class="page">
+  <div class="page-title">🕐 Plages horaires</div>
+  <div class="page-sub">Créez autant de plages que nécessaire — semaine, week-end, nuit, réunion…</div>
+  <div class="card">
+    <div class="card-title" style="margin-bottom:14px">Nouvelle plage</div>
+    <div class="field"><label>Nom de la plage</label><input type="text" id="p-nom" placeholder="ex: Matin semaine, Nuit WE, Réunion mensuelle…"></div>
+    <div class="g2">
+      <div class="field"><label>Type</label>
+        <select id="p-type">
+          <option value="matin">🌅 Matin</option><option value="aprem">☀️ Après-midi</option>
+          <option value="soir">🌆 Soir</option><option value="nuit">🌙 Nuit</option>
+          <option value="journee">🌤️ Journée</option><option value="reunion">📢 Réunion</option><option value="autre">📌 Autre</option>
+        </select>
+      </div>
+      <div class="field"><label>Groupe d'équité</label>
+        <select id="p-groupe">
+          <option value="auto">🔄 Automatique — détection par le moteur</option>
+          <option value="G1">G1 — Lever / Ouverture semaine (lun→ven matin)</option>
+          <option value="G2">G2 — Fin de journée semaine (aprem/soir lun→ven)</option>
+          <option value="G3">G3 — Nuit tournante stricte (1 éduc différent / semaine)</option>
+          <option value="G4">G4 — Nuit semaine (pool partagé lun→jeu)</option>
+          <option value="G5">G5 — Journée week-end et jours fériés</option>
+          <option value="G6">G6 — Nuit week-end et jours fériés</option>
+          <option value="G7">G7 — Réunion / Administratif (tous présents)</option>
+        </select>
+      </div>
+      <div class="g2">
+        <div class="field"><label>Début</label><input type="time" id="p-debut" value="07:00"></div>
+        <div class="field"><label>Fin</label><input type="time" id="p-fin" value="14:30"></div>
+      </div>
+    </div>
+    <div class="field"><label>Jours d'application</label>
+      <div class="chk-group" id="p-jours-grp">
+        <label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" value="0">Lun</label>
+        <label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" value="1">Mar</label>
+        <label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" value="2">Mer</label>
+        <label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" value="3">Jeu</label>
+        <label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" value="4">Ven</label>
+        <label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" value="5">Sam</label>
+        <label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" value="6">Dim</label>
+      </div>
+    </div>
+    <div class="g2">
+      <div class="field"><label>Nb éducateurs minimum requis</label><input type="number" id="p-min" value="2" min="0" max="30"></div>
+      <div class="field"><label>Nb éducateurs maximum</label><input type="number" id="p-max" value="4" min="1" max="30"></div>
+    </div>
+    <div class="field"><label>Présence réunion : tous obligatoires ?</label>
+      <label class="chk-pill" id="p-tous-pill" onclick="togglePill(this)" style="margin-top:4px"><input type="checkbox" id="p-tous">Oui — tous les éducs disponibles viennent</label>
+    </div>
+    <div class="field"><label>Couleur</label>
+      <div class="swatches" id="p-swatches">
+        <div class="swatch on" data-c="#2a5fc8" style="background:#2a5fc8" onclick="pickColor(this)"></div>
+        <div class="swatch" data-c="#1a7a4a" style="background:#1a7a4a" onclick="pickColor(this)"></div>
+        <div class="swatch" data-c="#c8622a" style="background:#c8622a" onclick="pickColor(this)"></div>
+        <div class="swatch" data-c="#7a3fc8" style="background:#7a3fc8" onclick="pickColor(this)"></div>
+        <div class="swatch" data-c="#c02a2a" style="background:#c02a2a" onclick="pickColor(this)"></div>
+        <div class="swatch" data-c="#d4800a" style="background:#d4800a" onclick="pickColor(this)"></div>
+        <div class="swatch" data-c="#1a7a8a" style="background:#1a7a8a" onclick="pickColor(this)"></div>
+        <div class="swatch" data-c="#6a8a1a" style="background:#6a8a1a" onclick="pickColor(this)"></div>
+        <div class="swatch" data-c="#8a2a6a" style="background:#8a2a6a" onclick="pickColor(this)"></div>
+        <div class="swatch" data-c="#3a6a8a" style="background:#3a6a8a" onclick="pickColor(this)"></div>
+      </div>
+      <input type="hidden" id="p-color" value="#2a5fc8">
+    </div>
+    <div class="btn-row"><button class="btn btn-primary" onclick="addPlage()">+ Ajouter cette plage</button></div>
+  </div>
+  <div class="sec-lbl">Plages définies</div>
+  <div id="plage-list"><div class="empty"><div class="icon">🕐</div><p>Aucune plage définie.</p></div></div>
+</div>
+
+<!-- ===== RÈGLES ===== -->
+<div id="page-regles" class="page">
+  <div class="page-title">⚖️ Règles & Lois</div>
+  <div class="page-sub">Activez et ajustez les contraintes légales et internes. Désactivez celles qui ne s'appliquent pas.</div>
+  <div class="itabs">
+    <div class="itab on" onclick="itab(this,'rl-legal')">⚖️ Légales</div>
+    <div class="itab" onclick="itab(this,'rl-intern')">🏢 Convention interne</div>
+    <div class="itab" onclick="itab(this,'rl-custom')">✏️ Personnalisées</div>
+  </div>
+  <div id="rl-legal"><div class="card"><div id="rules-legal"></div></div></div>
+  <div id="rl-intern" style="display:none"><div class="card"><div id="rules-intern"></div></div></div>
+  <div id="rl-custom" style="display:none">
+    <div class="card">
+      <div class="card-hd"><div class="card-title">Règles personnalisées</div><button class="btn btn-outline btn-sm" onclick="openModal('modal-rule',null)">+ Ajouter</button></div>
+      <div id="rules-custom"><div class="empty"><div class="icon">✏️</div><p>Aucune règle personnalisée.</p></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== GÉNÉRER ===== -->
+<div id="page-generer" class="page">
+  <div class="page-title">⚡ Générer l'horaire</div>
+  <div class="page-sub">L'algorithme respecte : Lois → Convention → Équité → Préférences éducs</div>
+  <div id="gen-alerts"></div>
+  <div class="g2">
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px">Période</div>
+      <div class="field"><label>Mois à planifier</label><input type="month" id="gen-mois"></div>
+      <div class="field"><label>Horizon d'équité (mois)</label>
+        <select id="gen-horizon">
+          <option value="1">1 mois</option><option value="2">2 mois</option>
+          <option value="3" selected>3 mois (recommandé)</option><option value="6">6 mois</option>
+        </select>
+      </div>
+      <div class="field"><label>Tolérance solde heures (±h sur la période)</label><input type="number" id="gen-tol" value="15" min="0" max="100"></div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px">Options</div>
+      <div class="field"><label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" id="opt-we" checked>Rotation équitable des week-ends</label></div>
+      <div class="field"><label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" id="opt-nuit" checked>Rotation équitable des nuits</label></div>
+      <div class="field"><label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" id="opt-conge" checked>Respecter absences encodées</label></div>
+      <div class="field"><label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" id="opt-double" checked>Éviter nuit → matin le lendemain</label></div>
+    </div>
+  </div>
+  <div id="gen-recap" class="card" style="display:none"><div id="gen-recap-content"></div></div>
+  <div class="btn-row">
+    <button class="btn btn-outline" onclick="verifier()">🔍 Vérifier la config</button>
+    <button class="btn btn-green" id="gen-btn" onclick="lancer()">⚡ Générer l'horaire</button>
+  </div>
+  <div id="gen-prog" class="card" style="display:none">
+    <div class="card-title" style="margin-bottom:8px">Génération…</div>
+    <div class="progress-bar"><div class="progress-fill" id="gen-bar" style="width:0%"></div></div>
+    <div id="gen-log" style="font-size:.76rem;color:var(--ink3);margin-top:10px;line-height:1.9;max-height:180px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<!-- ===== HORAIRE MENSUEL ===== -->
+<div id="page-horaire" class="page">
+  <div class="page-title">📅 Horaire mensuel</div>
+  <div class="page-sub">Vue par jour — chaque ligne = 1 jour, chaque colonne = 1 plage horaire.</div>
+  <div class="mnav">
+    <button class="btn btn-outline btn-sm" onclick="chgMonth(-1)">← Précédent</button>
+    <span class="mnav-label" id="hor-label">—</span><span id="hor-label_badge"></span>
+    <button class="btn btn-outline btn-sm" onclick="chgMonth(1)">Suivant →</button>
+    <button class="btn btn-outline btn-sm" onclick="window.print()" style="margin-left:auto">🖨️ Imprimer</button>
+  </div>
+  <div id="mois-generes" style="margin-bottom:12px;font-size:.8rem;color:var(--ink3)"></div>
+  <div id="hor-stats" class="stats-row"></div>
+  <div id="hor-alerts"></div>
+  <div id="hor-legend"></div>
+  <div class="card"><div class="sch-wrap"><div id="sch-table"></div></div></div>
+</div>
+
+<!-- ===== FICHE INDIVIDUELLE ===== -->
+<div id="page-fiche" class="page">
+  <div class="page-title">📋 Fiche individuelle</div>
+  <div class="page-sub">Fiche de prestations par éducateur — même logique que la fiche papier.</div>
+  <div class="sheet-nav">
+    <select class="sheet-select" id="fiche-educ" onchange="renderFiche()"><option value="">-- Choisir un éducateur --</option></select>
+    <input type="month" id="fiche-mois" onchange="renderFiche()" style="width:160px">
+    <button class="btn btn-outline btn-sm" onclick="window.print()">🖨️ Imprimer</button>
+  </div>
+  <div id="fiche-content"><div class="empty"><div class="icon">📋</div><p>Sélectionnez un éducateur et un mois.</p></div></div>
+</div>
+
+<!-- ===== SOLDES HEURES ===== -->
+<div id="page-soldes" class="page">
+  <div class="page-title">⏱️ Soldes heures</div>
+  <div class="page-sub">Suivi du solde d'heures sur la période — objectif : ±15h sur 3 mois.</div>
+  <div class="mnav">
+    <button class="btn btn-outline btn-sm" onclick="chgMonth(-1)">← Mois précédent</button>
+    <span class="mnav-label" id="sol-label">—</span><span id="sol-label_badge"></span>
+    <button class="btn btn-outline btn-sm" onclick="chgMonth(1)">Mois suivant →</button>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+      <label style="font-size:.8rem;color:var(--ink3)">Horizon :</label>
+      <select id="sol-horizon" onchange="renderSoldes()" style="width:120px">
+        <option value="1">1 mois</option><option value="2">2 mois</option>
+        <option value="3" selected>3 mois</option><option value="6">6 mois</option>
+      </select>
+    </div>
+  </div>
+  <div id="sol-content" class="balance-grid"><div class="empty"><div class="icon">⏱️</div><p>Générez d'abord un horaire.</p></div></div>
+</div>
+
+<!-- ===== STATS PRESTATIONS ===== -->
+<div id="page-stats" class="page">
+  <div class="page-title">📊 Stats prestations</div>
+  <div class="page-sub">Répartition des prestations par éducateur — équité par type de plage.</div>
+  <div class="mnav">
+    <button class="btn btn-outline btn-sm" onclick="chgMonth(-1)">← Précédent</button>
+    <span class="mnav-label" id="stats-label">—</span><span id="stats-label_badge"></span>
+    <button class="btn btn-outline btn-sm" onclick="chgMonth(1)">Suivant →</button>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+      <label style="font-size:.8rem;color:var(--ink3)">Période :</label>
+      <select id="stats-horizon" onchange="renderStats()" style="width:120px">
+        <option value="1">Ce mois</option>
+        <option value="3" selected>3 mois</option>
+        <option value="6">6 mois</option>
+      </select>
+    </div>
+  </div>
+  <div id="stats-content"><div class="empty"><div class="icon">📊</div><p>Générez un horaire pour voir les statistiques.</p></div></div>
+</div>
+
+<!-- ===== JOURS FÉRIÉS ===== -->
+<div id="page-feries" class="page">
+  <div class="page-title">🎉 Jours fériés</div>
+  <div class="page-sub">Les jours fériés appliquent automatiquement l'horaire week-end. Cochez les fériés belges ou ajoutez les vôtres.</div>
+  <div class="card">
+    <div class="card-title" style="margin-bottom:14px">Jours fériés belges</div>
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+      <label style="font-size:.82rem;font-weight:600">Année :</label>
+      <input type="number" id="ferie-yr" style="width:90px" onchange="renderFeries()">
+      <button class="btn btn-outline btn-sm" onclick="addAllFeries()">✅ Tous activer</button>
+      <button class="btn btn-outline btn-sm" onclick="clearFeries()">❌ Tout désactiver</button>
+    </div>
+    <div id="ferie-list"></div>
+  </div>
+  <div class="card">
+    <div class="card-title" style="margin-bottom:12px">Ajouter un jour férié personnalisé</div>
+    <div class="g2">
+      <div class="field"><label>Date</label><input type="date" id="ferie-date"></div>
+      <div class="field"><label>Nom</label><input type="text" id="ferie-nom" placeholder="ex: Fête locale"></div>
+    </div>
+    <div class="btn-row"><button class="btn btn-primary" onclick="addFerie()">+ Ajouter</button></div>
+  </div>
+</div>
+
+<!-- ===== ABSENCES ===== -->
+<div id="page-absences" class="page">
+  <div class="page-title">🏥 Absences & Congés</div>
+  <div class="page-sub">Encodez les absences. L'horaire les respectera lors de la prochaine génération.</div>
+  <div class="card">
+    <div class="card-title" style="margin-bottom:13px">Encoder une absence</div>
+    <div class="g2">
+      <div class="field"><label>Éducateur</label><select id="abs-educ"><option value="">-- Choisir --</option></select></div>
+      <div class="field"><label>Type</label>
+        <select id="abs-type">
+          <option value="conge">🌴 Congé annuel</option><option value="maladie">🤒 Maladie</option>
+          <option value="recup">🔄 Récupération</option><option value="formation">📚 Formation</option><option value="autre">📌 Autre</option>
+        </select>
+      </div>
+    </div>
+    <div class="g2">
+      <div class="field"><label>Début</label><input type="date" id="abs-debut"></div>
+      <div class="field"><label>Fin</label><input type="date" id="abs-fin"></div>
+    </div>
+    <div class="field"><label>Remarque</label><input type="text" id="abs-note" placeholder="Optionnel…"></div>
+    <div class="btn-row"><button class="btn btn-primary" onclick="addAbsence()">+ Enregistrer</button></div>
+  </div>
+  <div class="sec-lbl">Absences enregistrées</div>
+  <div id="abs-list"><div class="empty"><div class="icon">✅</div><p>Aucune absence.</p></div></div>
+</div>
+
+</main>
+</div>
+
+<!-- ===== MODALS ===== -->
+<div id="modal-educ" class="modal-bg" style="display:none" onclick="bgClose(event,'modal-educ')">
+<div class="modal" onclick="event.stopPropagation()">
+  <button class="modal-close" onclick="closeModal('modal-educ')">✕</button>
+  <div class="modal-title" id="me-title">Nouvel éducateur</div>
+  <div class="modal-sub">Informations et préférences</div>
+  <input type="hidden" id="me-id">
+  <div class="g2">
+    <div class="field"><label>Prénom</label><input id="me-prenom" placeholder="Marie"></div>
+    <div class="field"><label>Nom</label><input id="me-nom" placeholder="Dupont"></div>
+  </div>
+  <div class="g2">
+    <div class="field"><label>Contrat</label>
+      <select id="me-contrat" onchange="updateHField()">
+        <option value="temps-plein">Temps plein (38h/sem)</option>
+        <option value="4/5">4/5 temps (30.4h/sem)</option>
+        <option value="3/4">3/4 temps (28.5h/sem)</option>
+        <option value="mi-temps">Mi-temps (19h/sem)</option>
+        <option value="perso">Personnalisé</option>
+      </select>
+    </div>
+    <div class="field" id="me-h-field" style="display:none"><label>Heures/semaine</label><input type="number" id="me-heures" step="0.5" min="4" max="50" placeholder="ex: 32"></div>
+  </div>
+  <div class="field"><label>Jours de travail habituels</label>
+    <div class="chk-group" id="me-jours-grp">
+      <label class="chk-pill on" onclick="togglePill(this)"><input type="checkbox" value="0" checked>Lun</label>
+      <label class="chk-pill on" onclick="togglePill(this)"><input type="checkbox" value="1" checked>Mar</label>
+      <label class="chk-pill on" onclick="togglePill(this)"><input type="checkbox" value="2" checked>Mer</label>
+      <label class="chk-pill on" onclick="togglePill(this)"><input type="checkbox" value="3" checked>Jeu</label>
+      <label class="chk-pill on" onclick="togglePill(this)"><input type="checkbox" value="4" checked>Ven</label>
+      <label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" value="5">Sam</label>
+      <label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" value="6">Dim</label>
+    </div>
+  </div>
+  <hr>
+  <div class="field"><label>Plages préférées</label><div class="chk-group" id="me-prefs"></div></div>
+  <div class="field"><label>Plages refusées</label><div class="chk-group" id="me-excls"></div></div>
+  <hr>
+  <div style="margin-bottom:10px">
+    <div style="font-size:.78rem;font-weight:700;color:var(--ink2);margin-bottom:8px">Demandes spéciales (max 2)</div>
+    <div style="display:flex;flex-direction:column;gap:12px" id="me-demandes">
+
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px">
+        <div style="font-size:.75rem;font-weight:600;color:var(--ink3);margin-bottom:8px">Demande 1</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+          <label style="font-size:.78rem;min-width:30px">Jour :</label>
+          <select id="me-dem-jour-1" style="flex:1;min-width:100px">
+            <option value="-1">-- Choisir --</option>
+            <option value="0">Lundi</option><option value="1">Mardi</option><option value="2">Mercredi</option>
+            <option value="3">Jeudi</option><option value="4">Vendredi</option><option value="5">Samedi</option><option value="6">Dimanche</option>
+          </select>
+          <select id="me-dem-type-1" style="flex:1;min-width:120px">
+            <option value="eviter">⚠️ À éviter</option>
+            <option value="prefere">⭐ Préféré</option>
+          </select>
+        </div>
+        <div style="font-size:.75rem;color:var(--ink3);margin-bottom:5px">Plages concernées :</div>
+        <div class="chk-group" id="me-dem-plages-1"></div>
+      </div>
+
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px">
+        <div style="font-size:.75rem;font-weight:600;color:var(--ink3);margin-bottom:8px">Demande 2</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+          <label style="font-size:.78rem;min-width:30px">Jour :</label>
+          <select id="me-dem-jour-2" style="flex:1;min-width:100px">
+            <option value="-1">-- Choisir --</option>
+            <option value="0">Lundi</option><option value="1">Mardi</option><option value="2">Mercredi</option>
+            <option value="3">Jeudi</option><option value="4">Vendredi</option><option value="5">Samedi</option><option value="6">Dimanche</option>
+          </select>
+          <select id="me-dem-type-2" style="flex:1;min-width:120px">
+            <option value="eviter">⚠️ À éviter</option>
+            <option value="prefere">⭐ Préféré</option>
+          </select>
+        </div>
+        <div style="font-size:.75rem;color:var(--ink3);margin-bottom:5px">Plages concernées :</div>
+        <div class="chk-group" id="me-dem-plages-2"></div>
+      </div>
+
+    </div>
+  </div>
+  <hr>
+  <div class="btn-row">
+    <button class="btn btn-outline" onclick="closeModal('modal-educ')">Annuler</button>
+    <button class="btn btn-primary" onclick="saveEduc()">💾 Enregistrer</button>
+  </div>
+</div>
+</div>
+
+<div id="modal-rule" class="modal-bg" style="display:none" onclick="bgClose(event,'modal-rule')">
+<div class="modal" onclick="event.stopPropagation()">
+  <button class="modal-close" onclick="closeModal('modal-rule')">✕</button>
+  <div class="modal-title">Règle personnalisée</div>
+  <div class="modal-sub">Ajoutez votre propre contrainte</div>
+  <div class="field"><label>Nom</label><input id="r-nom" placeholder="ex: Pas de nuit après congé"></div>
+  <div class="field"><label>Description</label><input id="r-desc" placeholder="Ce que cette règle impose…"></div>
+  <div class="g2">
+    <div class="field"><label>Type</label>
+      <select id="r-type">
+        <option value="max_consec">Max jours consécutifs</option>
+        <option value="min_repos">Repos min entre 2 prestations (h)</option>
+        <option value="max_nuits_consec">Max nuits consécutives</option>
+        <option value="max_we_mois">Max WE/mois</option>
+        <option value="repos_apres_nuit">Repos après nuit (jours)</option>
+        <option value="max_h_semaine">Max heures/semaine</option>
+      </select>
+    </div>
+    <div class="field"><label>Valeur</label><input type="number" id="r-val" value="5"></div>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-outline" onclick="closeModal('modal-rule')">Annuler</button>
+    <button class="btn btn-primary" onclick="saveRule()">💾 Enregistrer</button>
+  </div>
+</div>
+</div>
+
+<div id="modal-cell" class="modal-bg" style="display:none" onclick="bgClose(event,'modal-cell')">
+<div class="modal" onclick="event.stopPropagation()">
+  <button class="modal-close" onclick="closeModal('modal-cell')">✕</button>
+  <div class="modal-title" id="cell-title">Modifier</div>
+  <div class="modal-sub" id="cell-sub"></div>
+  <div id="cell-content"></div>
+  <div class="btn-row">
+    <button class="btn btn-outline" onclick="closeModal('modal-cell')">Annuler</button>
+    <button class="btn btn-primary" onclick="saveCellEdit()">💾 Confirmer</button>
+  </div>
+</div>
+</div>
+
+<!-- ===== SCRIPTS — ordre important ===== -->
+<script src="data.js"></script>    <!-- État, constantes, storage (en premier) -->
+<script src="algo.js"></script>    <!-- Moteur de génération -->
+<script src="horaire.js"></script> <!-- Affichage horaire et fiche -->
+<script src="stats.js"></script>   <!-- Soldes heures et stats -->
+<script src="ui.js"></script>      <!-- Navigation, formulaires, modals (EN DERNIER) -->
+
+</body>
+</html>
