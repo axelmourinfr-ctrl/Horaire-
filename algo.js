@@ -470,6 +470,370 @@ function debugQuotas(moisStr) {
 }
 
 // ================================================================
+// MODULE 2 — Tournante WE en blocs sam+dim gravés
+// ================================================================
+// Pour chaque week-end du mois (sam+dim), Module 2 choisit AVANT le moteur :
+//   - une équipe G5 (journée) : MÊMES éducs sam ET dim
+//   - un éduc  G6 (nuit)      : MÊME personne sam ET dim
+//
+// Les choix sont gravés via `_lock_${pid}='locked'` (mécanisme v13 existant) ;
+// genMois les respecte automatiquement via getLockedSlots().
+//
+// Le tracking auto vs manuel se fait dans weAutoLocks (séparé) pour que
+// l'UI puisse afficher un cadenas bleu spécifique aux verrous Module 2.
+//
+// Critère de choix : équité inter-mois.
+//   score = (blocs_historique + blocs_ce_mois) / ratio_contrat
+//   tri ascendant → l'éduc avec le score le plus bas prend le WE
+//   tiebreak : date du dernier WE travaillé (le plus ancien d'abord)
+//
+// Soft cap : on essaie 2 WE max / mois (TP visent 1 WE sur 2),
+// mais dépassable si tout le monde est déjà à 2 (mois à 5 WE, absences…).
+// ================================================================
+
+// État séparé : { mois: { ds: [pid, pid, ...] } } — slots gravés par Module 2
+let weAutoLocks = {};
+
+function loadWeAutoLocks() {
+  try { weAutoLocks = JSON.parse(localStorage.getItem('planeduc_v3_weauto') || '{}'); }
+  catch(e) { weAutoLocks = {}; }
+}
+function saveWeAutoLocks() {
+  try { localStorage.setItem('planeduc_v3_weauto', JSON.stringify(weAutoLocks)); }
+  catch(e) {}
+}
+function isAutoLockWE(moisStr, ds, plageId) {
+  return !!(weAutoLocks[moisStr] && weAutoLocks[moisStr][ds] && weAutoLocks[moisStr][ds].includes(+plageId));
+}
+
+/**
+ * Compte les BLOCS WE (sam+dim ensemble) déjà effectués par chaque éduc
+ * sur l'historique. Un bloc = éduc présent sam ET dim sur la même plage WE.
+ *
+ * @returns { educId: { journee, nuit, dernierWE } }
+ */
+function buildHistoriqueWE(moisStr, horizon) {
+  horizon = horizon || 6;
+  const [yr, mo] = moisStr.split('-').map(Number);
+  const hist = {};
+  educs.forEach(e => { hist[e.id] = { journee: 0, nuit: 0, dernierWE: null }; });
+
+  for (let i = 1; i <= horizon; i++) {
+    const key = moisKey(yr, mo - i);
+    const plan = horaire[key]; if (!plan) continue;
+    const [ky, km] = key.split('-').map(Number);
+
+    // Repérer les samedis de ce mois
+    getDays(ky, km).forEach(sam => {
+      if (sam.getDay() !== 6) return; // 6 = samedi (JS)
+      const dim = new Date(sam); dim.setDate(dim.getDate() + 1);
+      const dsSam = dayStr(sam);
+      const dsDim = dayStr(dim);
+
+      // Collecter les éducs par groupe WE le sam et le dim
+      const samJ = new Set(), samN = new Set();
+      const dimJ = new Set(), dimN = new Set();
+      const collect = (plan, ds, dow, setJ, setN) => {
+        Object.entries(plan[ds] || {}).forEach(([pid, ids]) => {
+          if (pid.startsWith('_') || !Array.isArray(ids)) return;
+          const p = plageById(+pid); if (!p) return;
+          const grp = groupePlageJour(p, dow, isFerie(ds));
+          if (grp === 'G5') ids.forEach(id => setJ.add(+id));
+          else if (grp === 'G6') ids.forEach(id => setN.add(+id));
+        });
+      };
+      collect(plan, dsSam, 5, samJ, samN);
+      // Le dim peut être dans le mois suivant
+      const planDim = (dim.getMonth() === sam.getMonth()) ? plan : horaire[moisKey(dim.getFullYear(), dim.getMonth()+1)];
+      if (planDim) collect(planDim, dsDim, 6, dimJ, dimN);
+
+      // Intersection : éduc présent sam ET dim sur le même groupe = bloc complet
+      samJ.forEach(id => {
+        if (dimJ.has(id) && hist[id]) {
+          hist[id].journee++;
+          if (!hist[id].dernierWE || dsSam > hist[id].dernierWE) hist[id].dernierWE = dsSam;
+        }
+      });
+      samN.forEach(id => {
+        if (dimN.has(id) && hist[id]) {
+          hist[id].nuit++;
+          if (!hist[id].dernierWE || dsSam > hist[id].dernierWE) hist[id].dernierWE = dsSam;
+        }
+      });
+    });
+  }
+
+  return hist;
+}
+
+/**
+ * Retourne les paires sam+dim qui touchent le mois.
+ * - Cas normal : sam et dim dans le mois
+ * - Cas "dim au 1er du mois" : sam est dans le mois précédent
+ * - Cas "sam au dernier jour" : dim est dans le mois suivant
+ *
+ * Chaque WE est { sam: Date, dim: Date, samDansMois, dimDansMois }
+ */
+function getWeekendsDuMois(moisStr) {
+  const [yr, mo] = moisStr.split('-').map(Number);
+  const jours = getDays(yr, mo);
+  const WEs = [];
+
+  // 1) Sam du 1er au dernier jour
+  jours.forEach(d => {
+    if (d.getDay() !== 6) return;
+    const sam = new Date(d);
+    const dim = new Date(d); dim.setDate(dim.getDate() + 1);
+    WEs.push({
+      sam, dim,
+      samDansMois: true,
+      dimDansMois: dim.getMonth() === sam.getMonth(),
+    });
+  });
+  // 2) Si le mois commence un dim : ajouter le WE dont le sam est dans le mois précédent
+  if (jours[0].getDay() === 0) {
+    const dim = new Date(jours[0]);
+    const sam = new Date(dim); sam.setDate(sam.getDate() - 1);
+    WEs.unshift({ sam, dim, samDansMois: false, dimDansMois: true });
+  }
+  return WEs;
+}
+
+/**
+ * Identifie la plage G5 (journée WE) et G6 (nuit WE) dans la config.
+ * Une plage WE doit être applicable sam (jour 5) ET dim (jour 6).
+ * Retourne { plageG5, plageG6 } ou null si non trouvées.
+ */
+function trouverPlagesWE() {
+  let plageG5 = null, plageG6 = null;
+  plages.forEach(p => {
+    // Doit être applicable sam ET dim
+    if (!(p.jours || []).includes(5) || !(p.jours || []).includes(6)) return;
+    // On teste le sam (dow=5) hors férié pour identifier les plages
+    const grp = groupePlageJour(p, 5, false);
+    if (grp === 'G5' && !plageG5) plageG5 = p;
+    if (grp === 'G6' && !plageG6) plageG6 = p;
+  });
+  return { plageG5, plageG6 };
+}
+
+/**
+ * Planifie les blocs WE pour un mois SANS écrire dans horaire.
+ * Retourne { ds: { plageId: [educIds] }, summary }
+ *
+ * @param {string} moisStr
+ * @returns Plan + summary détaillé pour debug
+ */
+function planifierBlocsWE(moisStr) {
+  const { plageG5, plageG6 } = trouverPlagesWE();
+  if (!plageG5 && !plageG6) {
+    return { plan: {}, summary: { error: 'Aucune plage WE détectée (G5/G6)' } };
+  }
+
+  const hist = buildHistoriqueWE(moisStr, 6);
+  const WEs  = getWeekendsDuMois(moisStr);
+  const plan = {};
+  const summary = { weekends: [], plageG5: plageG5?.nom, plageG6: plageG6?.nom };
+
+  // Tracker pour ce mois (en cours d'attribution)
+  const nbCeMois = {};
+  educs.forEach(e => { nbCeMois[e.id] = 0; });
+
+  WEs.forEach(we => {
+    const dsSam = dayStr(we.sam);
+    const dsDim = dayStr(we.dim);
+
+    // ── Si le sam est dans le mois précédent et déjà assigné : on suit ──
+    if (!we.samDansMois) {
+      const moisPrec = moisKey(we.sam.getFullYear(), we.sam.getMonth() + 1);
+      const planPrec = horaire[moisPrec]?.[dsSam] || {};
+      const eqJournee = planPrec[plageG5?.id];
+      const eqNuit    = planPrec[plageG6?.id];
+      if (eqJournee || eqNuit) {
+        if (we.dimDansMois && eqJournee) {
+          plan[dsDim] = plan[dsDim] || {};
+          plan[dsDim][plageG5.id] = [...eqJournee];
+        }
+        if (we.dimDansMois && eqNuit) {
+          plan[dsDim] = plan[dsDim] || {};
+          plan[dsDim][plageG6.id] = [...eqNuit];
+        }
+        summary.weekends.push({
+          dsSam, dsDim, type: 'carryover_from_prev',
+          journee: eqJournee, nuit: eqNuit,
+        });
+        return;
+      }
+    }
+
+    // ── Disponibilités sam+dim ──
+    const dispoJournee = plageG5 ? educs.filter(e => {
+      if (!(e.jours || []).includes(5) || !(e.jours || []).includes(6)) return false;
+      if (isAbsent(e.id, dsSam) || isAbsent(e.id, dsDim)) return false;
+      if ((e.excls || []).includes(plageG5.id)) return false;
+      return true;
+    }) : [];
+
+    const dispoNuit = plageG6 ? educs.filter(e => {
+      if (!(e.jours || []).includes(5) || !(e.jours || []).includes(6)) return false;
+      if (isAbsent(e.id, dsSam) || isAbsent(e.id, dsDim)) return false;
+      if ((e.excls || []).includes(plageG6.id)) return false;
+      return true;
+    }) : [];
+
+    // Score = (TOTAL blocs WE + blocs ce mois) / ratio_contrat
+    // Le but premier est "1 WE sur 2" GLOBAL (journée ou nuit, peu importe).
+    // Tiebreak 1 : équité par sous-type (préférer qui a fait moins de CE type).
+    // Tiebreak 2 : dernier WE le plus ancien.
+    const trier = (liste, type) => [...liste].sort((a, b) => {
+      const totalA = hist[a.id].journee + hist[a.id].nuit + nbCeMois[a.id];
+      const totalB = hist[b.id].journee + hist[b.id].nuit + nbCeMois[b.id];
+      const sa = totalA / Math.max(0.01, ratioE(a));
+      const sb = totalB / Math.max(0.01, ratioE(b));
+      if (Math.abs(sa - sb) > 0.01) return sa - sb;
+      const ta = hist[a.id][type];
+      const tb = hist[b.id][type];
+      if (ta !== tb) return ta - tb;
+      const la = hist[a.id].dernierWE || '0000-00-00';
+      const lb = hist[b.id].dernierWE || '0000-00-00';
+      return la.localeCompare(lb);
+    });
+
+    const triesJournee = trier(dispoJournee, 'journee');
+    const teamJournee  = triesJournee.slice(0, plageG5?.min || 2).map(e => e.id);
+
+    // Pour la nuit, éviter de re-piocher dans la team journée si possible
+    const triesNuit = trier(dispoNuit, 'nuit');
+    const nuitHorsJournee = triesNuit.filter(e => !teamJournee.includes(e.id));
+    const educNuit = nuitHorsJournee.length ? nuitHorsJournee[0].id : (triesNuit[0]?.id ?? null);
+
+    // Écrire dans le plan
+    if (we.samDansMois && plageG5 && teamJournee.length) {
+      plan[dsSam] = plan[dsSam] || {};
+      plan[dsSam][plageG5.id] = teamJournee;
+    }
+    if (we.dimDansMois && plageG5 && teamJournee.length) {
+      plan[dsDim] = plan[dsDim] || {};
+      plan[dsDim][plageG5.id] = teamJournee;
+    }
+    if (we.samDansMois && plageG6 && educNuit !== null) {
+      plan[dsSam] = plan[dsSam] || {};
+      plan[dsSam][plageG6.id] = [educNuit];
+    }
+    if (we.dimDansMois && plageG6 && educNuit !== null) {
+      plan[dsDim] = plan[dsDim] || {};
+      plan[dsDim][plageG6.id] = [educNuit];
+    }
+
+    // Incrémenter compteurs locaux pour la suite du tri
+    teamJournee.forEach(id => { nbCeMois[id] = (nbCeMois[id] || 0) + 1; });
+    if (educNuit !== null) nbCeMois[educNuit] = (nbCeMois[educNuit] || 0) + 1;
+
+    summary.weekends.push({
+      dsSam, dsDim, type: 'planned',
+      journee: teamJournee.map(id => educById(id)?.prenom),
+      nuit: educNuit !== null ? educById(educNuit)?.prenom : null,
+    });
+  });
+
+  summary.nbWEParEduc = {};
+  educs.forEach(e => { summary.nbWEParEduc[e.prenom] = nbCeMois[e.id]; });
+
+  return { plan, summary };
+}
+
+/**
+ * Écrit les blocs WE planifiés dans horaire[mois] avec verrous.
+ * À appeler AVANT genMois() dans lancer().
+ */
+function genererBlocsWE(moisStr) {
+  loadWeAutoLocks();
+  const { plan, summary } = planifierBlocsWE(moisStr);
+  if (summary.error) {
+    console.warn('Module 2 :', summary.error);
+    return { error: summary.error };
+  }
+
+  if (!horaire[moisStr]) horaire[moisStr] = {};
+  weAutoLocks[moisStr] = {};
+
+  Object.entries(plan).forEach(([ds, slots]) => {
+    if (!horaire[moisStr][ds]) horaire[moisStr][ds] = {};
+    weAutoLocks[moisStr][ds] = [];
+    Object.entries(slots).forEach(([pid, ids]) => {
+      horaire[moisStr][ds][pid] = ids;
+      horaire[moisStr][ds]['_lock_' + pid] = 'locked';
+      weAutoLocks[moisStr][ds].push(+pid);
+    });
+  });
+
+  // Cas particulier : si le sam déborde du mois suivant, écrire aussi là-bas
+  Object.entries(plan).forEach(([ds, slots]) => {
+    const moisDeDs = ds.slice(0, 7);
+    if (moisDeDs !== moisStr) {
+      if (!horaire[moisDeDs]) horaire[moisDeDs] = {};
+      if (!horaire[moisDeDs][ds]) horaire[moisDeDs][ds] = {};
+      if (!weAutoLocks[moisDeDs]) weAutoLocks[moisDeDs] = {};
+      weAutoLocks[moisDeDs][ds] = weAutoLocks[moisDeDs][ds] || [];
+      Object.entries(slots).forEach(([pid, ids]) => {
+        horaire[moisDeDs][ds][pid] = ids;
+        horaire[moisDeDs][ds]['_lock_' + pid] = 'locked';
+        if (!weAutoLocks[moisDeDs][ds].includes(+pid)) weAutoLocks[moisDeDs][ds].push(+pid);
+      });
+    }
+  });
+
+  saveWeAutoLocks();
+  return { plan, summary };
+}
+
+/**
+ * DEBUG : affiche les blocs WE prévus pour un mois.
+ * Usage : debugBlocsWE() ou debugBlocsWE('2026-06')
+ */
+function debugBlocsWE(moisStr) {
+  moisStr = moisStr || currentMonth;
+  if (!educs.length || !plages.length) {
+    console.warn('Configurez éducateurs et plages.'); return;
+  }
+  const { plan, summary } = planifierBlocsWE(moisStr);
+
+  console.log('═'.repeat(70));
+  console.log(`Module 2 — Blocs WE planifiés pour ${moisStr}`);
+  console.log(`Plage journée : ${summary.plageG5 || 'aucune'} · Plage nuit : ${summary.plageG6 || 'aucune'}`);
+  console.log('═'.repeat(70));
+
+  if (!summary.weekends || !summary.weekends.length) {
+    console.warn('Aucun WE détecté.');
+    return;
+  }
+
+  const rows = summary.weekends.map(w => ({
+    'Sam'      : w.dsSam,
+    'Dim'      : w.dsDim,
+    'Type'     : w.type === 'carryover_from_prev' ? '↩ report mois préc.' : 'planifié',
+    'Journée'  : Array.isArray(w.journee) ? w.journee.join(' + ') : (w.journee ? w.journee.join(',') : '—'),
+    'Nuit'     : w.nuit || '—',
+  }));
+  console.table(rows);
+
+  console.log('Nombre de WE par éduc ce mois-ci :', summary.nbWEParEduc);
+
+  // Historique pour contextualiser
+  const hist = buildHistoriqueWE(moisStr, 6);
+  const histRows = educs.map(e => ({
+    Éduc       : `${e.prenom} ${e.nom}`,
+    Contrat    : e.contrat,
+    'WE journée (6 mois)': hist[e.id].journee,
+    'WE nuit (6 mois)'   : hist[e.id].nuit,
+    'Dernier WE'         : hist[e.id].dernierWE || '—',
+  }));
+  console.log('Historique 6 mois :');
+  console.table(histRows);
+  return { plan, summary, hist };
+}
+
+// ================================================================
 // PATTERNS PERSISTANTS (habitudes hebdomadaires)
 // { educId: { dow: { plageId: count } } }
 // ================================================================
@@ -737,6 +1101,14 @@ async function lancer(){
   L('Detection impossibilites...',3); await sl(50);
   const impos=detecterImpossibilites(mois);
   impos.forEach(msg=>L('⚠ '+msg,null));
+
+  // Module 2 — Tournante WE en blocs sam+dim gravés
+  L('Module 2 : gravure des blocs week-end...',6); await sl(30);
+  const m2 = genererBlocsWE(mois);
+  if(m2 && m2.summary){
+    const nbWE = (m2.summary.weekends||[]).filter(w=>w.type==='planned').length;
+    if(nbWE>0) L(`  ${nbWE} bloc(s) WE gravé(s) (sam+dim équipe identique)`,null);
+  }
 
   const result=await genMois(mois,L);
   window._lastDiagnostic=result.diagnostic||[];

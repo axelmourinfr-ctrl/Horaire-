@@ -106,6 +106,10 @@ function load(){
       horaire = old.horaire;
       save();
     }
+
+    // Module 2 — charger les verrous WE auto si l'API est disponible
+    if(typeof loadWeAutoLocks === 'function') loadWeAutoLocks();
+
     console.log('Charge:',Object.keys(horaire).length,'mois:', Object.keys(horaire).join(', '));
   }catch(e){ console.error('Erreur chargement:',e); }
 }
@@ -123,7 +127,8 @@ const CACHE_KEYS = [
   'planeduc_v3_patterns',
   'planeduc_v3_annual',
   'planeduc_v3_webloc',
-  'planeduc_v3_cycle'
+  'planeduc_v3_cycle',
+  'planeduc_v3_weauto'   // Module 2 — verrous WE auto-gravés
 ];
 
 function resetHoraires(){
@@ -134,6 +139,7 @@ function resetHoraires(){
   // Caches moteur
   CACHE_KEYS.forEach(k=>localStorage.removeItem(k));
   horaire = {};
+  if(typeof weAutoLocks !== 'undefined') weAutoLocks = {};
   save();
   alert('Horaires et caches réinitialisés avec succès.');
   location.reload();

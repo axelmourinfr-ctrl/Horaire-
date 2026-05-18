@@ -95,6 +95,7 @@ function renderHoraire(){
       <span><span style="display:inline-block;width:40px;height:16px;border-radius:4px;background:#2a5fc818;border:1px solid #2a5fc833;vertical-align:middle"></span> Neutre</span>
       <span><span style="display:inline-block;width:40px;height:16px;border-radius:4px;background:#fdf3e0;border:1.5px solid #f0c878;vertical-align:middle;color:#d4800a;font-size:.65rem;text-align:center">⚠️</span> Demande à éviter non respectée</span>
       <span><span style="display:inline-block;width:40px;height:16px;border-radius:4px;background:#fdeaea;border:1.5px solid #f0b3b3;vertical-align:middle;color:#c02a2a;font-size:.65rem;text-align:center">✗</span> Plage refusée assignée</span>
+      <span title="Bloc WE gravé automatiquement par Module 2"><span style="color:#2a5fc8;font-size:1rem">🔒</span> Bloc WE auto (sam+dim équipe identique)</span>
       <span class="badge ${forcedCount>0?'b-red':'b-green'}" style="margin-left:auto">
         ${forcedCount>0?`⚠️ ${forcedCount} demande(s) non respectée(s)`:'✅ Toutes les demandes respectées'}
       </span>
@@ -161,14 +162,37 @@ function renderHoraire(){
       for(let i=0;i<Math.max(0,miss);i++) chips += `<span class="missing-chip">⚠️ Poste libre</span>`;
       absHere.forEach(e=>{ chips += `<span class="abs-chip">🏥 ${e.prenom}</span>`; });
 
-      html += `<td class="${we||ferie?'we-bg':''}" onclick="openCellEdit('${ds}',${p.id})" style="cursor:pointer">
-        ${chips || '<div class="empty-slot">Vide</div>'}
+      // Module 2 — cadenas bleu si bloc WE gravé automatiquement
+      const isWEAuto = (typeof isAutoLockWE === 'function') && isAutoLockWE(currentMonth, ds, p.id);
+      const lockBadge = isWEAuto
+        ? `<span class="we-auto-lock" title="Bloc WE gravé automatiquement par Module 2 — cliquez pour déverrouiller"
+                 onclick="event.stopPropagation();unlockAutoWE('${ds}',${p.id})"
+                 style="position:absolute;top:2px;right:4px;color:#2a5fc8;font-size:.95rem;cursor:pointer;opacity:.75">🔒</span>`
+        : '';
+
+      html += `<td class="${we||ferie?'we-bg':''}" onclick="openCellEdit('${ds}',${p.id})" style="cursor:pointer;position:relative">
+        ${lockBadge}${chips || '<div class="empty-slot">Vide</div>'}
       </td>`;
     });
     html += '</tr>';
   });
   html += '</tbody></table>';
   document.getElementById('sch-table').innerHTML = html;
+}
+
+// ── Déverrouiller un bloc WE auto ──
+function unlockAutoWE(ds, plageId){
+  if(!confirm('Déverrouiller ce bloc WE ? Il pourra être réassigné à la prochaine génération.')) return;
+  const mo = ds.slice(0,7);
+  if(horaire[mo] && horaire[mo][ds]){
+    horaire[mo][ds]['_lock_'+plageId] = null;
+  }
+  if(typeof weAutoLocks !== 'undefined' && weAutoLocks[mo] && weAutoLocks[mo][ds]){
+    weAutoLocks[mo][ds] = weAutoLocks[mo][ds].filter(p => p !== +plageId);
+    if(typeof saveWeAutoLocks === 'function') saveWeAutoLocks();
+  }
+  save();
+  renderHoraire();
 }
 
 // ── Modification manuelle d'une cellule ──
