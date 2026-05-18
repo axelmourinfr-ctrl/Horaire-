@@ -154,6 +154,20 @@ function plagesDuGroupe(groupe, dow, ferie) {
 }
 
 /**
+ * Vérifie si une plage doit être pourvue un jour donné.
+ * Sur férié non-WE, on remappe le jour vers Sam (5) — comme le moteur v13 fait
+ * dans horaire.js : un lundi férié devient "comme un samedi", donc seules
+ * les plages dont .jours inclut 5 ou 6 s'appliquent (journée WE, nuit).
+ *
+ * Le matin et le soir de semaine (jours=[0,1,2,3] ou [4]) ne s'appliquent PAS
+ * sur un férié non-WE. C'est cette logique-là.
+ */
+function plageApplicable(plage, dow, ferie) {
+  const dowCheck = (ferie && dow < 5) ? 5 : dow;
+  return (plage.jours || []).includes(dowCheck);
+}
+
+/**
  * Console debug : affiche le tableau groupe × plage × jour pour vérification visuelle.
  * Usage : ouvrir la console navigateur et taper  debugGroupes()
  */
@@ -173,6 +187,286 @@ function debugGroupes() {
     }
   });
   console.table(rows);
+}
+
+// ================================================================
+// MODULE 1 — Historique & quotas par groupe
+// ================================================================
+// Module 1 COMPTE et CALCULE. Il ne génère rien.
+// Il fournit la matière première aux Modules 2, 3, 4 :
+//   - historique par groupe G1..G7 sur N mois passés (par défaut 3)
+//   - compteur G8 = jours fériés travaillés sur l'année calendaire en cours
+//   - quotas-cibles pour le mois à générer (slots à répartir équitablement)
+//
+// Lecture : on parcourt horaire[mois] sur la fenêtre historique, on reclassifie
+// chaque assignation via groupePlageJour() (Module 0), on cumule par groupe.
+// ================================================================
+
+const GROUPES_TOUS = ['G1','G2','G3','G4','G5','G6','G7'];
+
+/**
+ * Compte par groupe combien de slots chaque éduc a fait sur l'historique.
+ *
+ * @param {string} moisStr  - Mois cible à générer (ex: '2026-06')
+ * @param {number} horizon  - Nb de mois passés à scanner pour G1..G7 (défaut 3)
+ * @returns {Object}        - { educId: {G1..G7, G8, _hTotal, _slotsTotal} }
+ *                            G8 = jours fériés travaillés sur l'année courante
+ */
+function buildHistoriqueParGroupe(moisStr, horizon) {
+  horizon = horizon || 3;
+  const [yr, mo] = moisStr.split('-').map(Number);
+  const anneeCible = yr;
+
+  const hist = {};
+  educs.forEach(e => {
+    hist[e.id] = {
+      G1:0, G2:0, G3:0, G4:0, G5:0, G6:0, G7:0,
+      G8: 0,           // jours fériés travaillés cette année
+      _hTotal: 0,      // total heures sur l'horizon
+      _slotsTotal: 0,  // total slots sur l'horizon
+    };
+  });
+
+  // 1) Scan des N mois précédents (G1..G7 + G8 si même année)
+  for (let i = 1; i <= horizon; i++) {
+    const key = moisKey(yr, mo - i);
+    const plan = horaire[key];
+    if (!plan) continue;
+
+    const [ky, km] = key.split('-').map(Number);
+    const sameYear = (ky === anneeCible);
+
+    getDays(ky, km).forEach(d => {
+      const ds = dayStr(d);
+      const dow = dowIdx(d);
+      const ferie = isFerie(ds);
+      const educsCeJourFerie = new Set();
+
+      Object.entries(plan[ds] || {}).forEach(([pid, ids]) => {
+        if (pid.startsWith('_') || !Array.isArray(ids)) return;
+        const p = plageById(+pid); if (!p) return;
+        const grp = groupePlageJour(p, dow, ferie);
+        if (!grp) return; // réunion annulée sur férié
+        const h = dureeH(p);
+
+        ids.forEach(eid => {
+          const id = +eid;
+          if (!hist[id]) return;
+          hist[id][grp]++;
+          hist[id]._hTotal += h;
+          hist[id]._slotsTotal++;
+          if (ferie && !isReunion(p)) educsCeJourFerie.add(id);
+        });
+      });
+
+      // G8 : 1 jour férié travaillé = +1, et UNIQUEMENT si même année calendaire
+      if (ferie && sameYear) {
+        educsCeJourFerie.forEach(id => { if (hist[id]) hist[id].G8++; });
+      }
+    });
+  }
+
+  // 2) G8 supplémentaire : mois de l'année cible NON couverts par l'horizon
+  //    (équité fériés annuelle, pas glissante sur N mois)
+  for (let m = 1; m < mo - horizon; m++) {
+    const key = moisKey(anneeCible, m);
+    const plan = horaire[key]; if (!plan) continue;
+    const [ky, km] = key.split('-').map(Number);
+
+    getDays(ky, km).forEach(d => {
+      const ds = dayStr(d);
+      if (!isFerie(ds)) return;
+      const educsCeJour = new Set();
+      Object.entries(plan[ds] || {}).forEach(([pid, ids]) => {
+        if (pid.startsWith('_') || !Array.isArray(ids)) return;
+        const p = plageById(+pid); if (!p || isReunion(p)) return;
+        ids.forEach(eid => educsCeJour.add(+eid));
+      });
+      educsCeJour.forEach(id => { if (hist[id]) hist[id].G8++; });
+    });
+  }
+
+  return hist;
+}
+
+/**
+ * Poids relatif d'un éduc pour un groupe sur un mois donné.
+ * Combine : ratio contrat × (slots accessibles / slots totaux du groupe).
+ * Un éduc qui ne bosse pas le vendredi a poids 0 sur G3.
+ */
+function poidsEducPourGroupe(educ, groupe, moisStr) {
+  const [yr, mo] = moisStr.split('-').map(Number);
+  let slotsTotaux = 0, slotsAccessibles = 0;
+
+  getDays(yr, mo).forEach(d => {
+    const dow = dowIdx(d);
+    const ferie = isFerie(dayStr(d));
+    plages.forEach(p => {
+      if (!plageApplicable(p, dow, ferie)) return;
+      if (groupePlageJour(p, dow, ferie) !== groupe) return;
+      const mn = p.min || 1;
+      slotsTotaux += mn;
+      if (!(educ.jours || []).includes(dow)) return;
+      if ((educ.excls || []).includes(p.id)) return;
+      slotsAccessibles += mn;
+    });
+  });
+
+  if (slotsTotaux === 0) return 0;
+  return (slotsAccessibles / slotsTotaux) * ratioE(educ);
+}
+
+/**
+ * Calcule les quotas-cibles par éduc × groupe pour le mois à générer.
+ *
+ * Logique :
+ *   - G1, G2, G3, G4, G5, G6 : répartition proportionnelle au poids,
+ *     + petit rattrapage doux basé sur l'historique (25% de l'écart).
+ *   - G7 (réunion) : "tous présents" → quota = nb de réunions accessibles à l'éduc.
+ *   - G8 (équité fériés annuelle) : rattrapage à 30% (un peu plus fort
+ *     car la fenêtre est annuelle, plus longue à rééquilibrer).
+ *
+ * @param {Object} hist     - Sortie de buildHistoriqueParGroupe
+ * @param {string} moisStr  - Mois à générer
+ * @returns {Object}        - { educId: {G1..G7, G8} } (valeurs en float)
+ */
+function calculerQuotasParGroupe(hist, moisStr) {
+  const quotas = {};
+  educs.forEach(e => {
+    quotas[e.id] = {G1:0, G2:0, G3:0, G4:0, G5:0, G6:0, G7:0, G8:0};
+  });
+
+  const [yr, mo] = moisStr.split('-').map(Number);
+  const jours = getDays(yr, mo);
+
+  // ── Total slots à pourvoir ce mois, par groupe ──
+  const slotsMois = {G1:0, G2:0, G3:0, G4:0, G5:0, G6:0, G7:0};
+  jours.forEach(d => {
+    const dow = dowIdx(d);
+    const ferie = isFerie(dayStr(d));
+    plages.forEach(p => {
+      if (!plageApplicable(p, dow, ferie)) return;
+      const grp = groupePlageJour(p, dow, ferie);
+      if (!grp) return;
+      if (grp === 'G7') slotsMois[grp] += 1;       // 1 occurrence par réunion
+      else              slotsMois[grp] += (p.min || 1);
+    });
+  });
+
+  // ── G1, G2, G3, G4, G5, G6 : proportionnel + rattrapage 25% ──
+  ['G1','G2','G3','G4','G5','G6'].forEach(grp => {
+    const totalSlots = slotsMois[grp];
+    if (totalSlots === 0) return;
+
+    const poids = {};
+    let sumPoids = 0;
+    educs.forEach(e => {
+      poids[e.id] = poidsEducPourGroupe(e, grp, moisStr);
+      sumPoids += poids[e.id];
+    });
+    if (sumPoids === 0) return;
+
+    // Part équitable de base
+    educs.forEach(e => {
+      quotas[e.id][grp] = totalSlots * (poids[e.id] / sumPoids);
+    });
+
+    // Rattrapage historique doux (25%)
+    const histRempli = educs.some(e => hist[e.id][grp] > 0);
+    if (histRempli) {
+      // Moyenne pondérée du groupe sur l'historique (normalisée par ratio)
+      const moyenneNorm = educs.reduce((s,e) =>
+        s + (hist[e.id][grp] / Math.max(0.01, ratioE(e))), 0) / educs.length;
+      educs.forEach(e => {
+        const expected = moyenneNorm * ratioE(e);
+        const actual   = hist[e.id][grp];
+        const ecart    = expected - actual;
+        quotas[e.id][grp] += ecart * 0.25;
+        if (quotas[e.id][grp] < 0) quotas[e.id][grp] = 0;
+      });
+    }
+  });
+
+  // ── G7 (réunion) : tous présents → quota = nb réunions où l'éduc est dispo ──
+  educs.forEach(e => {
+    let count = 0;
+    jours.forEach(d => {
+      const dow = dowIdx(d);
+      const ferie = isFerie(dayStr(d));
+      plages.forEach(p => {
+        if (!plageApplicable(p, dow, ferie)) return;
+        if (groupePlageJour(p, dow, ferie) !== 'G7') return;
+        if (!(e.jours || []).includes(dow)) return;
+        if ((e.excls || []).includes(p.id)) return;
+        count++;
+      });
+    });
+    quotas[e.id].G7 = count;
+  });
+
+  // ── G8 (équité fériés annuelle) : part équitable + rattrapage 30% ──
+  const feriesMois = jours.filter(d => isFerie(dayStr(d))).length;
+  if (feriesMois > 0) {
+    const sumRatios = educs.reduce((s,x) => s + ratioE(x), 0);
+    const moyenneNormG8 = educs.reduce((s,e) =>
+      s + (hist[e.id].G8 / Math.max(0.01, ratioE(e))), 0) / educs.length;
+    educs.forEach(e => {
+      const partBrute = feriesMois * (ratioE(e) / Math.max(0.01, sumRatios));
+      const expected  = moyenneNormG8 * ratioE(e);
+      const actual    = hist[e.id].G8;
+      const ecart     = expected - actual;
+      quotas[e.id].G8 = Math.max(0, partBrute + ecart * 0.30);
+    });
+  }
+
+  return quotas;
+}
+
+/**
+ * DEBUG : affiche dans la console l'historique + quotas pour un mois.
+ * Usage : debugQuotas()              → mois courant
+ *         debugQuotas('2026-06')     → mois précis
+ */
+function debugQuotas(moisStr) {
+  moisStr = moisStr || currentMonth;
+  if (!educs.length || !plages.length) {
+    console.warn('Configurez éducateurs et plages avant de debugger.');
+    return;
+  }
+  const hist = buildHistoriqueParGroupe(moisStr, 3);
+  const quotas = calculerQuotasParGroupe(hist, moisStr);
+
+  console.log('═'.repeat(70));
+  console.log(`Module 1 — Historique & quotas pour ${moisStr}`);
+  console.log('═'.repeat(70));
+
+  const rows = educs.map(e => {
+    const h = hist[e.id], q = quotas[e.id];
+    const fmt = (hv, qv) => `${hv} → ${qv.toFixed(1)}`;
+    return {
+      Éduc    : `${e.prenom} ${e.nom}`,
+      Contrat : e.contrat,
+      'Heures hist': h._hTotal.toFixed(0)+'h',
+      G1      : fmt(h.G1, q.G1),
+      G2      : fmt(h.G2, q.G2),
+      G3      : fmt(h.G3, q.G3),
+      G4      : fmt(h.G4, q.G4),
+      G5      : fmt(h.G5, q.G5),
+      G6      : fmt(h.G6, q.G6),
+      G7      : fmt(h.G7, q.G7),
+      'G8 fériés': fmt(h.G8, q.G8),
+    };
+  });
+  console.table(rows);
+
+  // Vérification : somme des quotas par groupe ≈ slots à pourvoir
+  const sumQuotas = {};
+  ['G1','G2','G3','G4','G5','G6','G7','G8'].forEach(g => {
+    sumQuotas[g] = educs.reduce((s,e) => s + quotas[e.id][g], 0).toFixed(1);
+  });
+  console.log('Somme quotas par groupe :', sumQuotas);
+  console.log('(Hist X → Quota Y) : X = slots faits sur 3 mois passés, Y = cible pour ce mois');
+  return {hist, quotas};
 }
 
 // ================================================================
