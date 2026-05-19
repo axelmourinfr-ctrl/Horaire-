@@ -128,7 +128,8 @@ const CACHE_KEYS = [
   'planeduc_v3_annual',
   'planeduc_v3_webloc',
   'planeduc_v3_cycle',
-  'planeduc_v3_weauto'   // Module 2 — verrous WE auto-gravés
+  'planeduc_v3_weauto',   // Module 2 — verrous WE auto-gravés
+  'planeduc_v3_nuitvend'  // Module 3 — pointeur cycle nuit vendredi
 ];
 
 function resetHoraires(){

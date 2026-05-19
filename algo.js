@@ -987,6 +987,147 @@ function bonusStabilite(e,dow,plage,patterns){
 }
 
 // ================================================================
+// MODULE 3 — Tournante nuit vendredi (cycle strict inter-mois)
+//
+// Chaque vendredi du mois, UN éduc fait la nuit en rotation
+// stricte (pointeur persisté dans localStorage).
+// Vendredi férié → G8 prime, Module 3 ne touche pas ce soir.
+// Lock cadenas bleu identique à Module 2 (même mécanisme v13).
+// ================================================================
+
+const G3_KEY = 'planeduc_v3_nuitvend';
+
+function loadCycleG3() {
+  try { return JSON.parse(localStorage.getItem(G3_KEY) || '{}'); } catch(e) { return {}; }
+}
+function saveCycleG3(data) {
+  try { localStorage.setItem(G3_KEY, JSON.stringify(data)); } catch(e) {}
+}
+
+/**
+ * Identifie la plage nuit applicable le vendredi (G3).
+ * Utilise isNuitP (Module 0) pour la détection fiable.
+ * Doit avoir le vendredi (jour 4) dans ses jours de travail.
+ */
+function trouverPlageNuitVend() {
+  return plages.find(p =>
+    (p.jours || []).includes(4) && isNuitP(p)
+  ) || null;
+}
+
+/**
+ * Retourne tous les vendredis du mois avec indication de férié.
+ */
+function getVendredisDuMois3(moisStr) {
+  const [yr, mo] = moisStr.split('-').map(Number);
+  return getDays(yr, mo)
+    .filter(d => dowIdx(d) === 4)
+    .map(d => ({ d, ds: dayStr(d), ferie: isFerie(dayStr(d)) }));
+}
+
+/**
+ * Éducs éligibles G3 : vendredi (jour 4) dans leurs jours de travail.
+ * Conserve l'ordre de définition (= ordre UI) pour la rotation.
+ */
+function eligiblesG3() {
+  return educs.filter(e => (e.jours || []).includes(4));
+}
+
+/**
+ * Calcule le plan nuit vendredi sans sauvegarder le pointeur.
+ * savePtr=true uniquement lors de la vraie génération.
+ */
+function planifierNuitVend(moisStr, savePtr) {
+  const plageNuit = trouverPlageNuitVend();
+  if (!plageNuit) {
+    return { plan: {}, summary: { vendredis: [], plageNuit: null } };
+  }
+
+  const elig = eligiblesG3();
+  if (!elig.length) {
+    return { plan: {}, summary: { vendredis: [], plageNuit: plageNuit.nom } };
+  }
+
+  // Charger le pointeur courant
+  const cycle = loadCycleG3();
+  let ptr = typeof cycle.ptr === 'number' ? cycle.ptr % elig.length : 0;
+
+  const vendredis = getVendredisDuMois3(moisStr);
+  const plan = {};
+  const assignements = [];
+
+  vendredis.forEach(({ ds, ferie }) => {
+    // Vendredi férié → G8 prime, on ne verrouille pas
+    if (ferie) {
+      assignements.push({ ds, educ: '—', raison: 'férié → G8' });
+      return;
+    }
+
+    // Trouver le prochain éduc disponible (non absent)
+    let educ = null;
+    for (let i = 0; i < elig.length; i++) {
+      const cand = elig[ptr % elig.length];
+      ptr = (ptr + 1) % elig.length;
+      if (!isAbsent(cand.id, ds)) { educ = cand; break; }
+    }
+
+    if (!educ) {
+      assignements.push({ ds, educ: '—', raison: 'tous absents' });
+      return;
+    }
+
+    // Écrire le verrou (1 personne pour la nuit tournante)
+    if (!plan[ds]) plan[ds] = {};
+    plan[ds][plageNuit.id] = [educ.id];
+    plan[ds][`_lock_${plageNuit.id}`] = 'locked';
+    assignements.push({ ds, educ: educ.prenom, raison: 'tournante G3' });
+  });
+
+  // Sauvegarder le pointeur uniquement lors de la vraie génération
+  if (savePtr) {
+    cycle.ptr = ptr;
+    saveCycleG3(cycle);
+  }
+
+  return { plan, summary: { plageNuit: plageNuit.nom, vendredis: assignements } };
+}
+
+/**
+ * Écrit les nuits vendredi dans horaire[moisStr] et avance le pointeur.
+ * Appelé par lancer() avant genMois.
+ */
+function genererNuitVend(moisStr) {
+  if (typeof window !== 'undefined' && window.MODULE3_ENABLED === false) return null;
+  const result = planifierNuitVend(moisStr, true); // savePtr=true
+  if (!result.plan || !Object.keys(result.plan).length) return result;
+  if (!horaire[moisStr]) horaire[moisStr] = {};
+  Object.entries(result.plan).forEach(([ds, slots]) => {
+    if (!horaire[moisStr][ds]) horaire[moisStr][ds] = {};
+    Object.assign(horaire[moisStr][ds], slots);
+  });
+  return result;
+}
+
+/**
+ * Debug Module 3 : affiche le plan nuit vendredi SANS avancer le pointeur.
+ * Usage console : debugNuitVend() ou debugNuitVend('2026-07')
+ */
+function debugNuitVend(moisStr) {
+  moisStr = moisStr || (typeof currentMonth !== 'undefined' ? currentMonth : null);
+  if (!moisStr) { console.warn('Précisez un mois ex: debugNuitVend("2026-07")'); return; }
+  const result = planifierNuitVend(moisStr, false); // savePtr=false → lecture seule
+  console.log(`\n── Module 3 Debug — ${moisStr} ──`);
+  console.log(`Plage nuit vendredi : ${result.summary.plageNuit || 'non trouvée'}`);
+  const elig = eligiblesG3();
+  const cycle = loadCycleG3();
+  console.log(`Éducs éligibles G3 (${elig.length}) :`, elig.map(e => e.prenom).join(' → '));
+  console.log(`Pointeur actuel (cycle.ptr) :`, cycle.ptr ?? 0);
+  console.table(result.summary.vendredis);
+  return result;
+}
+window.debugNuitVend = debugNuitVend;
+
+// ================================================================
 // STATS ANNUELLES
 // ================================================================
 function loadAnnualStats(){ try{return JSON.parse(localStorage.getItem('planeduc_v3_annual')||'{}');}catch(e){return {};} }
@@ -1233,6 +1374,19 @@ async function lancer(){
       delete weAutoLocks[mois];
       if(typeof saveWeAutoLocks === 'function') saveWeAutoLocks();
     }
+  }
+
+  // Module 3 — Tournante nuit vendredi (cycle strict inter-mois)
+  // Désactivable au runtime via window.MODULE3_ENABLED = false (console)
+  if(typeof window === 'undefined' || window.MODULE3_ENABLED !== false){
+    L('Module 3 : nuit vendredi tournante...',9); await sl(20);
+    const m3 = genererNuitVend(mois);
+    if(m3 && m3.summary){
+      const nbVend = (m3.summary.vendredis||[]).filter(v=>v.raison==='tournante G3').length;
+      if(nbVend>0) L(`  ${nbVend} nuit(s) vendredi gravée(s)`,null);
+    }
+  } else {
+    L('Module 3 désactivé (window.MODULE3_ENABLED = false)',9);
   }
 
   const result=await genMois(mois,L);
