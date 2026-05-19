@@ -1267,6 +1267,345 @@ function debugModeleHebdo(moisStr) {
 window.debugModeleHebdo = debugModeleHebdo;
 
 // ================================================================
+// MODULE 5 — Filtre légalité (post-génération)
+//
+// Passe sur le planning généré par genMois et corrige les
+// violations du repos 11h entre prestations du même éduc.
+//
+// Stratégie de correction :
+//   1. Retirer l'éduc du slot POSTÉRIEUR (sauf si locké → retirer l'antérieur)
+//   2. Si les deux sont lockés → violation non corrigeable, log warning
+//   3. Si retrait passe sous le min du slot → warning coverage
+//
+// Appelé dans lancer() après genMois, avant sauvegarde.
+// ================================================================
+
+/**
+ * Convertit "HH:MM" en minutes depuis minuit.
+ */
+function heureEnMin(h){ const [hh,mm]=h.split(':').map(Number); return hh*60+mm; }
+
+/**
+ * Calcule le timestamp absolu (ms) de fin d'une prestation.
+ * Tient compte des nuits qui traversent minuit (pm=true).
+ */
+function finAbsMs(ds, plage){
+  const [fh,fm] = plage.fin.split(':').map(Number);
+  const pm = plage.fin < plage.debut; // traverse minuit
+  return new Date(ds+'T00:00').getTime() + (pm?86400000:0) + (fh*60+fm)*60000;
+}
+
+/**
+ * Calcule le timestamp absolu (ms) de début d'une prestation.
+ */
+function debutAbsMs(ds, plage){
+  const [bh,bm] = plage.debut.split(':').map(Number);
+  return new Date(ds+'T00:00').getTime() + (bh*60+bm)*60000;
+}
+
+/**
+ * Retourne true si le slot (ds, plageId) est verrouillé dans le planning.
+ */
+function slotLock(planning, ds, plageId){
+  return (planning[ds]||{})[`_lock_${plageId}`] === 'locked';
+}
+
+/**
+ * Détecte et corrige les violations du repos 11h dans le planning.
+ * Modifie planning en place. Retourne { violations, fixes }.
+ */
+function filtrerLegalite(planning, moisStr){
+  const minReposMs = 11 * 3600000; // 11h en ms
+  const violations = [];
+  const fixes      = [];
+
+  educs.forEach(e => {
+    // Collecter toutes les prestations de cet éduc, triées par début absolu
+    const prest = [];
+    Object.keys(planning).filter(ds => ds.match(/^\d{4}-\d{2}-\d{2}$/)).sort().forEach(ds => {
+      plages.forEach(p => {
+        if(isReunion(p)) return; // la réunion n'est pas concernée par le repos 11h
+        const ids = ((planning[ds]||{})[p.id]||[]).map(Number);
+        if(!ids.includes(e.id)) return;
+        prest.push({
+          ds, plage:p, pid:p.id,
+          debutMs: debutAbsMs(ds, p),
+          finMs:   finAbsMs(ds, p),
+          locked:  slotLock(planning, ds, p.id)
+        });
+      });
+    });
+    prest.sort((a,b)=>a.debutMs-b.debutMs);
+
+    // Vérifier le repos entre chaque paire consécutive
+    let i = 0;
+    while(i < prest.length - 1){
+      const p1 = prest[i];
+      const p2 = prest[i+1];
+      const repos = p2.debutMs - p1.finMs;
+
+      if(repos >= 0 && repos < minReposMs){
+        const reposH = (repos/3600000).toFixed(1);
+        violations.push({
+          educ: e.prenom,
+          fin:  `${p1.ds} ${p1.plage.nom}→${p1.plage.fin}`,
+          debut:`${p2.ds} ${p2.plage.nom} ${p2.plage.debut}`,
+          reposH
+        });
+
+        if(!p2.locked){
+          // Retirer educ du slot postérieur
+          planning[p2.ds][p2.pid] = (planning[p2.ds][p2.pid]||[]).map(Number).filter(id=>id!==e.id);
+          fixes.push(`✓ Retiré ${e.prenom} de [${p2.plage.nom} ${p2.ds}] (repos ${reposH}h < 11h)`);
+          prest.splice(i+1,1); // re-vérifier sans ce slot
+        } else if(!p1.locked){
+          // p2 est locké → retirer educ du slot antérieur
+          planning[p1.ds][p1.pid] = (planning[p1.ds][p1.pid]||[]).map(Number).filter(id=>id!==e.id);
+          fixes.push(`✓ Retiré ${e.prenom} de [${p1.plage.nom} ${p1.ds}] (repos ${reposH}h < 11h, slot suivant locké)`);
+          prest.splice(i,1);
+          if(i>0) i--; // re-vérifier avec le précédent
+        } else {
+          // Les deux sont lockés → impossible de corriger
+          fixes.push(`⚠ Conflit repos non corrigeable : ${e.prenom} ${p1.ds}→${p2.ds} (2 slots lockés)`);
+          i++;
+        }
+      } else {
+        i++;
+      }
+    }
+  });
+
+  return { violations, fixes };
+}
+
+/**
+ * Debug Module 5 : affiche les violations du mois sans corriger.
+ * Usage console : debugLegalite() ou debugLegalite('2026-07')
+ */
+function debugLegalite(moisStr){
+  moisStr = moisStr || (typeof currentMonth!=='undefined'?currentMonth:null);
+  if(!moisStr){ console.warn('Précisez un mois ex: debugLegalite("2026-07")'); return; }
+  const plan = horaire[moisStr];
+  if(!plan){ console.warn('Pas d\'horaire généré pour', moisStr); return; }
+  // Copie pour ne pas modifier l'original
+  const planCopy = JSON.parse(JSON.stringify(plan));
+  const result = filtrerLegalite(planCopy, moisStr);
+  console.log(`\n── Module 5 Debug — ${moisStr} ──`);
+  console.log(`${result.violations.length} violation(s) détectée(s) :`);
+  console.table(result.violations);
+  console.log('\nCorrections qui seraient appliquées :');
+  result.fixes.forEach(f=>console.log(' ',f));
+  return result;
+}
+window.debugLegalite = debugLegalite;
+
+// ================================================================
+// MODULE 5 — Filtre légalité (post-génération)
+//
+// Passe après genMois pour détecter et corriger toutes les
+// violations de repos (< 11h entre deux prestations consécutives).
+//
+// Cause principale : les locks M2/M3/M4 sont écrits AVANT que
+// genMois initialise lastPrest, donc v13 ne voit pas qu'un éduc
+// vient de faire une nuit quand il assigne la prestation suivante.
+//
+// Algorithme :
+//  1. Parcourir tous les jours du mois en ordre
+//  2. Pour chaque éduc, tracker la fin de sa dernière prestation
+//  3. Détecter gap < 11h → violation
+//  4. Corriger : retirer l'éduc violant du 2ème slot
+//     → si slot encore ≥ min : OK
+//     → si slot court-staffé : chercher un remplaçant
+// ================================================================
+
+/** Retourne la datetime de début d'une prestation (Date JS). */
+function debutPrestMs(d, plage) {
+  const [h, m] = (plage.debut || '00:00').split(':').map(Number);
+  const dt = new Date(d); dt.setHours(h, m, 0, 0); return dt;
+}
+
+/** Retourne la datetime de fin d'une prestation (Date JS, gère le passage minuit). */
+function finPrestMs(d, plage) {
+  const [dh, dm] = (plage.debut || '00:00').split(':').map(Number);
+  const [fh, fm] = (plage.fin   || '00:00').split(':').map(Number);
+  const fin = new Date(d); fin.setHours(fh, fm, 0, 0);
+  // Passage minuit : fin < debut (ex : nuit 20:00→09:00)
+  if (fh * 60 + fm <= dh * 60 + dm) fin.setDate(fin.getDate() + 1);
+  return fin;
+}
+
+/**
+ * Détecte toutes les violations de repos < 11h dans un planning.
+ * Retourne un tableau de violations {eid, ds, plage, dernDs, dernPlage, gapH}.
+ */
+function detecterViolations(planning, moisStr) {
+  const [yr, mo] = moisStr.split('-').map(Number);
+  const jours     = getDays(yr, mo);
+  const REPOS_MIN = 11; // heures légales
+  const violations = [];
+
+  // derniereFin[eid] = { fin: Date, ds: string, plage: obj }
+  const derniereFin = {};
+
+  jours.forEach(d => {
+    const ds = dayStr(d);
+    if (!planning[ds]) return;
+
+    // Trier les plages par heure de début ce jour-là (traitement chronologique)
+    const plagesDuJour = plages
+      .filter(p => !isReunion(p) && Array.isArray(planning[ds][p.id]) && planning[ds][p.id].length)
+      .sort((a, b) => a.debut.localeCompare(b.debut));
+
+    plagesDuJour.forEach(p => {
+      const debut = debutPrestMs(d, p);
+      const fin   = finPrestMs(d, p);
+
+      (planning[ds][p.id] || []).map(Number).forEach(eid => {
+        const der = derniereFin[eid];
+        if (der) {
+          const gapH = (debut - der.fin) / 3_600_000;
+          // gapH > -1 évite les faux positifs sur prestations simultanées
+          if (gapH > -1 && gapH < REPOS_MIN) {
+            violations.push({
+              eid,
+              ds, plage: p,
+              dernDs: der.ds, dernPlage: der.plage,
+              gapH: Math.round(gapH * 10) / 10
+            });
+          }
+        }
+        // Mettre à jour la fin (prendre la plus tardive si plusieurs slots ce jour)
+        if (!derniereFin[eid] || fin > derniereFin[eid].fin) {
+          derniereFin[eid] = { fin, ds, plage: p };
+        }
+      });
+    });
+  });
+
+  return violations;
+}
+
+/**
+ * Corrige les violations en retirant l'éduc violant du 2ème slot.
+ * Si le slot devient court-staffé, cherche un remplaçant disponible.
+ * Retourne { corriges, nonCorriges }.
+ */
+function corrigerViolations(planning, violations, moisStr) {
+  const corriges = [], nonCorriges = [];
+  const REPOS_MIN = 11;
+
+  // Pour chaque violation, ne traiter qu'une fois par (eid, ds, plage)
+  const traites = new Set();
+
+  violations.forEach(viol => {
+    const { eid, ds, plage, gapH } = viol;
+    const key = `${eid}_${ds}_${plage.id}`;
+    if (traites.has(key)) return;
+    traites.add(key);
+
+    const d   = new Date(ds + 'T12:00');
+    const dow = dowIdx(d);
+
+    // Retirer l'éduc violant du 2ème slot (celui qui commence trop tôt)
+    const ids    = (planning[ds][plage.id] || []).map(Number);
+    const newIds = ids.filter(x => x !== eid);
+    planning[ds][plage.id] = newIds;
+
+    // Si le slot est encore suffisamment staffé → pas besoin de remplaçant
+    const reqMin = +(plage.min) || 1;
+    if (newIds.length >= reqMin) {
+      corriges.push({ ...viol, remplacant: null, note: 'slot suffisant sans remplaçant' });
+      return;
+    }
+
+    // Chercher un remplaçant
+    // Reconstruire la fin précédente de chaque candidat pour vérifier leur repos
+    const dernFin = {};
+    plages.filter(p => !isReunion(p)).forEach(p => {
+      (planning[ds][p.id] || []).map(Number).forEach(id => {
+        const fin = finPrestMs(d, p);
+        if (!dernFin[id] || fin > dernFin[id]) dernFin[id] = fin;
+      });
+    });
+
+    const candidats = educs.filter(e => {
+      if (e.id === eid) return false;               // l'éduc violant ne peut pas se remplacer lui-même
+      if (newIds.includes(e.id)) return false;      // déjà sur ce slot
+      if (!(e.jours || []).includes(dow)) return false; // jour non travaillé
+      if (isAbsent(e.id, ds)) return false;
+      if ((e.excls || []).includes(plage.id)) return false;
+      // Pas déjà sur une autre prestation ce jour (sauf pause acceptée)
+      if (!e.acceptePause) {
+        const dejaOccupe = plages.some(p2 => {
+          if (p2.id === plage.id) return false;
+          return ((planning[ds][p2.id] || []).map(Number)).includes(e.id);
+        });
+        if (dejaOccupe) return false;
+      }
+      // Vérifier que ce candidat a assez de repos
+      const debutCette = debutPrestMs(d, plage);
+      const derF = dernFin[e.id];
+      if (derF) {
+        const gap = (debutCette - derF) / 3_600_000;
+        if (gap >= 0 && gap < REPOS_MIN) return false;
+      }
+      return true;
+    });
+
+    if (candidats.length > 0) {
+      const rempl = candidats[0];
+      planning[ds][plage.id] = [...newIds, rempl.id];
+      corriges.push({ ...viol, remplacant: rempl.prenom });
+    } else {
+      // Aucun remplaçant → slot court-staffé, c'est acceptable
+      nonCorriges.push(viol);
+    }
+  });
+
+  return { corriges, nonCorriges };
+}
+
+/**
+ * Passe complète : détecte + corrige. Appelée par lancer() après genMois.
+ * Modifie planning en place.
+ */
+function filtrerLegalite(planning, moisStr, L) {
+  if (typeof window !== 'undefined' && window.MODULE5_ENABLED === false) return;
+  const violations = detecterViolations(planning, moisStr);
+  if (!violations.length) {
+    if (L) L('  ✓ Aucune violation de repos détectée', null);
+    return { violations: [], corriges: [], nonCorriges: [] };
+  }
+  const { corriges, nonCorriges } = corrigerViolations(planning, violations, moisStr);
+  if (L) {
+    if (corriges.length)    L(`  ✓ M5 : ${corriges.length} violation(s) repos corrigée(s)`, null);
+    if (nonCorriges.length) L(`  ⚠ M5 : ${nonCorriges.length} violation(s) non corrigée(s) (slot court-staffé)`, null);
+  }
+  return { violations, corriges, nonCorriges };
+}
+
+/**
+ * Debug Module 5 : affiche les violations de l'horaire généré.
+ * Usage console : debugViolations() ou debugViolations('2026-07')
+ */
+function debugViolations(moisStr) {
+  moisStr = moisStr || (typeof currentMonth !== 'undefined' ? currentMonth : null);
+  if (!moisStr) { console.warn('Précisez un mois ex: debugViolations("2026-07")'); return; }
+  const plan = horaire[moisStr];
+  if (!plan) { console.warn('Pas d\'horaire généré pour', moisStr); return; }
+  const violations = detecterViolations(plan, moisStr);
+  console.log(`\n── Module 5 Debug — ${moisStr} ──`);
+  if (!violations.length) { console.log('  ✓ Aucune violation de repos.'); return; }
+  console.log(`${violations.length} violation(s) de repos < 11h :`);
+  violations.forEach(v => {
+    const e = educById(v.eid);
+    console.log(`  ${(e?.prenom||'?').padEnd(10)} : ${v.dernDs} ${v.dernPlage.nom.padEnd(18)} → ${v.ds} ${v.plage.nom} (${v.gapH}h repos)`);
+  });
+  return violations;
+}
+window.debugViolations = debugViolations;
+
+// ================================================================
 // STATS ANNUELLES
 // ================================================================
 function loadAnnualStats(){ try{return JSON.parse(localStorage.getItem('planeduc_v3_annual')||'{}');}catch(e){return {};} }
@@ -1542,6 +1881,10 @@ async function lancer(){
 
   const result=await genMois(mois,L);
   window._lastDiagnostic=result.diagnostic||[];
+
+  // Module 5 — Filtre légalité (corrige les violations de repos post-génération)
+  L('Module 5 : vérification légalité...',88); await sl(20);
+  filtrerLegalite(result.planning, mois, L);
 
   L('Validation...',93); await sl(30);
   const validation=validatePlanning(result.planning,mois,result.tracker,result.quotas);
