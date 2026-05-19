@@ -1142,6 +1142,131 @@ function debugNuitVend(moisStr) {
 window.debugNuitVend = debugNuitVend;
 
 // ================================================================
+// MODULE 4 — Modèle hebdomadaire par éduc
+//
+// Lit les demandes spéciales (jour + plage + type) de chaque éduc
+// et pré-alloue les créneaux "préférer" avant genMois.
+// Les "éviter" sont gérés par le score renforcé (P6) dans genMois.
+//
+// Règles :
+//  - Respecte les absences et les fériés
+//  - Ne remplace pas les verrous M2/M3 existants
+//  - Si conflit de min (trop de locks pour 1 slot) → garde tous
+//    (v13 assure le minimum, le surplus est acceptable)
+// ================================================================
+
+/**
+ * Pré-alloue les demandes "préférer" de chaque éduc pour le mois.
+ * Chaque semaine du mois, si l'éduc n'est pas absent et que la plage
+ * s'applique ce jour-là, le créneau est verrouillé.
+ * saveFlag=true lors de la vraie génération.
+ */
+function planifierModeleHebdo(moisStr) {
+  const [yr, mo] = moisStr.split('-').map(Number);
+  const jours = getDays(yr, mo);
+  const plan = {};
+  const log = [];
+
+  educs.forEach(e => {
+    const prefDemandes = (e.demandes || []).filter(d => d.type === 'preferer');
+    if (!prefDemandes.length) return;
+
+    prefDemandes.forEach(dem => {
+      // Tous les jours du mois qui correspondent à ce dow
+      const joursCibles = jours.filter(d => dowIdx(d) === dem.jour);
+      joursCibles.forEach(d => {
+        const ds = dayStr(d);
+        // Absent → passer
+        if (isAbsent(e.id, ds)) return;
+        // Férié → passer (G8 prime)
+        if (isFerie(ds)) return;
+
+        dem.plageIds.forEach(pid => {
+          const plage = plageById(pid);
+          if (!plage) return;
+          // La plage doit s'appliquer ce jour
+          if (!(plage.jours || []).includes(dem.jour)) return;
+          // Ne pas écraser un verrou M2/M3 existant (sauf si ce slot n'est pas encore lockée)
+          const planMois = (typeof horaire !== 'undefined' && horaire[moisStr]) ? horaire[moisStr] : {};
+          if ((planMois[ds] || {})[`_lock_${pid}`] === 'locked') {
+            // Slot déjà lockée — ajouter l'éduc si pas déjà dedans (ex: M2 a mis 1 personne, on peut en ajouter)
+            const existingIds = ((planMois[ds] || {})[pid] || []).map(Number);
+            if (!existingIds.includes(e.id)) {
+              if (!plan[ds]) plan[ds] = {};
+              plan[ds][pid] = [...existingIds, e.id];
+              plan[ds][`_lock_${pid}`] = 'locked';
+            }
+            return;
+          }
+          // Créer ou compléter le verrou
+          if (!plan[ds]) plan[ds] = {};
+          const existingPlan = (plan[ds][pid] || []).map(Number);
+          if (!existingPlan.includes(e.id)) {
+            plan[ds][pid] = [...existingPlan, e.id];
+          }
+          plan[ds][`_lock_${pid}`] = 'locked';
+          log.push({ ds, educ: e.prenom, plage: plage.nom });
+        });
+      });
+    });
+  });
+
+  return { plan, log };
+}
+
+/**
+ * Écrit les locks Module 4 dans horaire[moisStr].
+ * Appelé par lancer() après Module 3, avant genMois.
+ */
+function genererModeleHebdo(moisStr) {
+  if (typeof window !== 'undefined' && window.MODULE4_ENABLED === false) return null;
+  const result = planifierModeleHebdo(moisStr);
+  if (!result.plan || !Object.keys(result.plan).length) return result;
+  if (!horaire[moisStr]) horaire[moisStr] = {};
+  Object.entries(result.plan).forEach(([ds, slots]) => {
+    if (!horaire[moisStr][ds]) horaire[moisStr][ds] = {};
+    Object.entries(slots).forEach(([k, v]) => {
+      horaire[moisStr][ds][k] = v;
+    });
+  });
+  return result;
+}
+
+/**
+ * Debug Module 4 : affiche les locks qui seraient créés sans les appliquer.
+ * Usage console : debugModeleHebdo() ou debugModeleHebdo('2026-07')
+ */
+function debugModeleHebdo(moisStr) {
+  moisStr = moisStr || (typeof currentMonth !== 'undefined' ? currentMonth : null);
+  if (!moisStr) { console.warn('Précisez un mois ex: debugModeleHebdo("2026-07")'); return; }
+  const result = planifierModeleHebdo(moisStr);
+  const JOURS_NOM = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+  console.log(`\n── Module 4 Debug — ${moisStr} ──`);
+  console.log(`Demandes "préférer" actives :`);
+  educs.forEach(e => {
+    const pref = (e.demandes||[]).filter(d=>d.type==='preferer');
+    if (!pref.length) return;
+    pref.forEach(d => {
+      const plagesNom = (d.plageIds||[]).map(pid=>plageById(pid)?.nom||pid).join(', ');
+      console.log(`  ${e.prenom} : ${JOURS_NOM[d.jour]} → ${plagesNom}`);
+    });
+  });
+  console.log(`\nDemandes "éviter" actives :`);
+  educs.forEach(e => {
+    const evit = (e.demandes||[]).filter(d=>d.type==='eviter');
+    if (!evit.length) return;
+    evit.forEach(d => {
+      const plagesNom = (d.plageIds||[]).map(pid=>plageById(pid)?.nom||pid).join(', ');
+      console.log(`  ${e.prenom} : ${JOURS_NOM[d.jour]} → éviter ${plagesNom}`);
+    });
+  });
+  console.log(`\nLocks générés (${result.log.length}) :`);
+  console.table(result.log);
+  return result;
+}
+window.debugModeleHebdo = debugModeleHebdo;
+
+// ================================================================
 // STATS ANNUELLES
 // ================================================================
 function loadAnnualStats(){ try{return JSON.parse(localStorage.getItem('planeduc_v3_annual')||'{}');}catch(e){return {};} }
@@ -1403,6 +1528,18 @@ async function lancer(){
     L('Module 3 désactivé (window.MODULE3_ENABLED = false)',9);
   }
 
+  // Module 4 — Modèle hebdomadaire par éduc (demandes spéciales)
+  // Désactivable au runtime via window.MODULE4_ENABLED = false (console)
+  if(typeof window === 'undefined' || window.MODULE4_ENABLED !== false){
+    L('Module 4 : modèle hebdomadaire...',11); await sl(20);
+    const m4 = genererModeleHebdo(mois);
+    if(m4 && m4.log && m4.log.length > 0){
+      L(`  ${m4.log.length} créneau(x) préféré(s) gravé(s)`,null);
+    }
+  } else {
+    L('Module 4 désactivé (window.MODULE4_ENABLED = false)',11);
+  }
+
   const result=await genMois(mois,L);
   window._lastDiagnostic=result.diagnostic||[];
 
@@ -1640,13 +1777,22 @@ async function genMois(moisStr,L){
       sc+=t.fatigue*0.5;
     }
 
-    // ── P5 : Préférences ──
+    // ── P5 : Préférences globales (type plage) ──
     if(!reunion&&(e.prefs||[]).includes(plage.id)) sc-=10;
-    const dow2=d.getDay()===0?6:d.getDay()-1;
+
+    // ── P6 : Demandes spéciales (jour + plage) — poids fort ──
+    // "préférer" : bonus fort → guide v13 vers ce créneau ce jour
+    // "éviter"   : malus fort → v13 évite ce créneau ce jour
     (e.demandes||[]).forEach(dem=>{
-      if(dem.jour===dow2&&(dem.plageIds||[]).includes(plage.id)){
-        if(dem.type==='eviter')  sc+=13;
-        if(dem.type==='prefere') sc-=13;
+      if(dem.jour===dow&&(dem.plageIds||[]).includes(plage.id)){
+        if(dem.type==='eviter')   sc+=28;  // quasi-contrainte
+        if(dem.type==='preferer') sc-=22;  // forte priorité
+      }
+      // Si TOUTES les plages de ce jour sont évitées → renforcer encore
+      if(dem.jour===dow&&dem.type==='eviter'){
+        const plagesCeJour=plages.filter(p2=>(p2.jours||[]).includes(dow)&&!isReunion(p2));
+        const toutEvite=plagesCeJour.every(p2=>(dem.plageIds||[]).includes(p2.id));
+        if(toutEvite) sc+=15; // pénalité supplémentaire si tout le jour est évité
       }
     });
 
