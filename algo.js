@@ -1812,7 +1812,7 @@ async function genMois(moisStr,L){
     {nom:'nuits', keyFn:e=>norm((hist[e.id].nuits||0)+(tracker[e.id].nuits||0),e),
      filtre:p=>isNuitP(p)&&!isReunion(p),  maxSwaps:60, maxDebt:26, maxSurp:18},
     {nom:'soirs', keyFn:e=>norm((hist[e.id].types?.soir||0)+(tracker[e.id].types?.soir||0),e),
-     filtre:p=>typePlage(p)==='soir'&&!isReunion(p), maxSwaps:20, maxDebt:16, maxSurp:14},
+     filtre:p=>typePlage(p)==='soir'&&!isReunion(p)&&!(p.jours||[]).every(j=>j===4), maxSwaps:15, maxDebt:14, maxSurp:12},
     {nom:'WE',    keyFn:e=>norm((hist[e.id].we||0)+(tracker[e.id].weCount||0),e),
      filtre:p=>!isReunion(p),              maxSwaps:25, maxDebt:16, maxSurp:14},
   ];
