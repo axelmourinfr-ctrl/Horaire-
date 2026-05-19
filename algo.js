@@ -1566,26 +1566,215 @@ function corrigerViolations(planning, violations, moisStr) {
 }
 
 /**
+ * Détecte les violations de jours consécutifs (max 6 jours de travail d'affilée).
+ * Retourne [{eid, streak:[ds,...], longueur}]
+ */
+function detecterViolationsConsec(planning, moisStr) {
+  const [yr, mo] = moisStr.split('-').map(Number);
+  // Inclure le mois précédent pour détecter les streaks qui commencent avant
+  const prevMois = moisKey(yr, mo - 1);
+  const prevPlan  = horaire[prevMois] || {};
+  const jours      = getDays(yr, mo);
+  const MAX_CONS   = +(typeof getRule === 'function' ? getRule('max_cons', 6) : 6);
+
+  // Construire l'ensemble des jours travaillés par éduc
+  const jours_travailles = {}; // eid → Set<ds>
+  educs.forEach(e => jours_travailles[e.id] = new Set());
+
+  // Mois précédent
+  Object.keys(prevPlan).sort().forEach(ds => {
+    Object.entries(prevPlan[ds] || {}).forEach(([pid, ids]) => {
+      if (pid.startsWith('_') || !Array.isArray(ids)) return;
+      ids.map(Number).forEach(eid => jours_travailles[eid]?.add(ds));
+    });
+  });
+  // Mois courant
+  jours.forEach(d => {
+    const ds = dayStr(d);
+    if (!planning[ds]) return;
+    Object.entries(planning[ds]).forEach(([pid, ids]) => {
+      if (pid.startsWith('_') || !Array.isArray(ids)) return;
+      ids.map(Number).forEach(eid => jours_travailles[eid]?.add(ds));
+    });
+  });
+
+  const violations = [];
+  educs.forEach(e => {
+    const jt = Array.from(jours_travailles[e.id]).sort();
+    if (jt.length < 2) return;
+    let streak = [jt[0]];
+    for (let i = 1; i < jt.length; i++) {
+      const prev = new Date(jt[i-1] + 'T12:00');
+      const curr = new Date(jt[i]   + 'T12:00');
+      const diffJ = Math.round((curr - prev) / 86400000);
+      if (diffJ === 1) {
+        streak.push(jt[i]);
+      } else {
+        if (streak.length > MAX_CONS) {
+          // Ne signaler que les jours dans le mois courant
+          const streakMois = streak.filter(ds => ds >= moisStr);
+          if (streakMois.length) violations.push({ eid: e.id, streak, longueur: streak.length });
+        }
+        streak = [jt[i]];
+      }
+    }
+    if (streak.length > MAX_CONS) {
+      const streakMois = streak.filter(ds => ds >= moisStr);
+      if (streakMois.length) violations.push({ eid: e.id, streak, longueur: streak.length });
+    }
+  });
+  return violations;
+}
+
+/**
+ * Corrige les violations de jours consécutifs en retirant l'éduc
+ * d'une prestation sur un jour de la streak (de préférence non lockée).
+ */
+function corrigerConsec(planning, violations) {
+  const corriges = [], nonCorriges = [];
+  violations.forEach(viol => {
+    const { eid, streak } = viol;
+    // Trouver un jour dans la streak (du mois courant, non WE si possible) à libérer
+    const candidatsDsALiberer = streak
+      .filter(ds => planning[ds]) // dans le mois courant
+      .filter(ds => {
+        // Préférer les jours non WE (sam/dim) car les WE sont souvent des blocs essentiels
+        const d = new Date(ds + 'T12:00');
+        return d.getDay() !== 0 && d.getDay() !== 6;
+      });
+    const dsALiberer = candidatsDsALiberer.length
+      ? candidatsDsALiberer[Math.floor(candidatsDsALiberer.length / 2)] // milieu de la streak
+      : streak.filter(ds => planning[ds])[0];
+
+    if (!dsALiberer || !planning[dsALiberer]) { nonCorriges.push(viol); return; }
+
+    // Trouver la plage non lockée à retirer
+    let retire = false;
+    plages.filter(p => !isReunion(p)).forEach(p => {
+      if (retire) return;
+      const ids = (planning[dsALiberer][p.id] || []).map(Number);
+      if (!ids.includes(eid)) return;
+      if (planning[dsALiberer][`_lock_${p.id}`] === 'locked') return; // ne pas toucher les locks
+      const newIds = ids.filter(x => x !== eid);
+      planning[dsALiberer][p.id] = newIds;
+      corriges.push({ ...viol, ds: dsALiberer, plage: p });
+      retire = true;
+    });
+    if (!retire) nonCorriges.push(viol);
+  });
+  return { corriges, nonCorriges };
+}
+
+/**
+ * Détecte les violations de max heures/semaine (> 50h lun→dim).
+ * Retourne [{eid, semaine: 'YYYY-Www', heures, surplus}]
+ */
+function detecterViolations50h(planning, moisStr) {
+  const [yr, mo] = moisStr.split('-').map(Number);
+  const jours     = getDays(yr, mo);
+  const MAX_H_SEM = 50;
+
+  // Grouper les jours par semaine ISO lun→dim
+  const semaines = {}; // 'YYYY-Www' → [d, ...]
+  jours.forEach(d => {
+    const lun = new Date(d);
+    lun.setDate(d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1));
+    const key = lun.toISOString().slice(0, 10);
+    (semaines[key] = semaines[key] || []).push(d);
+  });
+
+  const violations = [];
+  educs.forEach(e => {
+    Object.entries(semaines).forEach(([sem, joursSem]) => {
+      let totalH = 0;
+      const slots = []; // {ds, plage, h}
+      joursSem.forEach(d => {
+        const ds = dayStr(d);
+        if (!planning[ds]) return;
+        plages.filter(p => !isReunion(p)).forEach(p => {
+          const ids = (planning[ds][p.id] || []).map(Number);
+          if (!ids.includes(e.id)) return;
+          const h = +(p.dureeH) || 0;
+          totalH += h;
+          slots.push({ ds, plage: p, h, locked: planning[ds][`_lock_${p.id}`] === 'locked' });
+        });
+      });
+      if (totalH > MAX_H_SEM) {
+        violations.push({ eid: e.id, semaine: sem, heures: totalH, surplus: totalH - MAX_H_SEM, slots });
+      }
+    });
+  });
+  return violations;
+}
+
+/**
+ * Corrige les violations 50h en retirant l'éduc de la prestation la plus longue
+ * non lockée de la semaine en excès.
+ */
+function corriger50h(planning, violations) {
+  const corriges = [], nonCorriges = [];
+  violations.forEach(viol => {
+    const { eid, slots, surplus } = viol;
+    // Trier les slots par durée décroissante, non lockés en premier
+    const candidats = [...slots]
+      .filter(s => !s.locked)
+      .sort((a, b) => b.h - a.h);
+
+    if (!candidats.length) { nonCorriges.push(viol); return; }
+
+    const slot = candidats[0];
+    const ids = (planning[slot.ds][slot.plage.id] || []).map(Number);
+    planning[slot.ds][slot.plage.id] = ids.filter(x => x !== eid);
+    corriges.push({ ...viol, ds: slot.ds, plage: slot.plage });
+  });
+  return { corriges, nonCorriges };
+}
+
+/**
  * Passe complète : détecte + corrige. Appelée par lancer() après genMois.
  * Modifie planning en place.
  */
 function filtrerLegalite(planning, moisStr, L) {
   if (typeof window !== 'undefined' && window.MODULE5_ENABLED === false) return;
-  const violations = detecterViolations(planning, moisStr);
-  if (!violations.length) {
-    if (L) L('  ✓ Aucune violation de repos détectée', null);
-    return { violations: [], corriges: [], nonCorriges: [] };
+  let totalCor = 0, totalNon = 0;
+
+  // 1. Repos 11h
+  const vRepos = detecterViolations(planning, moisStr);
+  if (vRepos.length) {
+    const { corriges: c1, nonCorriges: n1 } = corrigerViolations(planning, vRepos, moisStr);
+    totalCor += c1.length; totalNon += n1.length;
   }
-  const { corriges, nonCorriges } = corrigerViolations(planning, violations, moisStr);
-  if (L) {
-    if (corriges.length)    L(`  ✓ M5 : ${corriges.length} violation(s) repos corrigée(s)`, null);
-    if (nonCorriges.length) L(`  ⚠ M5 : ${nonCorriges.length} violation(s) non corrigée(s) (slot court-staffé)`, null);
+
+  // 2. Max 6 jours consécutifs
+  const vConsec = detecterViolationsConsec(planning, moisStr);
+  if (vConsec.length) {
+    const { corriges: c2, nonCorriges: n2 } = corrigerConsec(planning, vConsec);
+    totalCor += c2.length; totalNon += n2.length;
   }
-  return { violations, corriges, nonCorriges };
+
+  // 3. Max 50h/semaine
+  const v50h = detecterViolations50h(planning, moisStr);
+  if (v50h.length) {
+    const { corriges: c3, nonCorriges: n3 } = corriger50h(planning, v50h);
+    totalCor += c3.length; totalNon += n3.length;
+  }
+
+  const total = vRepos.length + vConsec.length + v50h.length;
+  if (!total) {
+    if (L) L('  ✓ Aucune violation légale détectée', null);
+  } else {
+    if (L) {
+      L(`  M5 : ${total} violation(s) — ${totalCor} corrigée(s)${totalNon ? ', '+totalNon+' non corrigée(s)' : ''}`, null);
+      if (vRepos.length)  L(`    Repos 11h : ${vRepos.length}`, null);
+      if (vConsec.length) L(`    Jours consécutifs : ${vConsec.length}`, null);
+      if (v50h.length)    L(`    Max 50h/sem : ${v50h.length}`, null);
+    }
+  }
+  return { vRepos, vConsec, v50h, totalCor, totalNon };
 }
 
 /**
- * Debug Module 5 : affiche les violations de l'horaire généré.
+ * Debug Module 5 : affiche toutes les violations de l'horaire généré.
  * Usage console : debugViolations() ou debugViolations('2026-07')
  */
 function debugViolations(moisStr) {
@@ -1593,15 +1782,31 @@ function debugViolations(moisStr) {
   if (!moisStr) { console.warn('Précisez un mois ex: debugViolations("2026-07")'); return; }
   const plan = horaire[moisStr];
   if (!plan) { console.warn('Pas d\'horaire généré pour', moisStr); return; }
-  const violations = detecterViolations(plan, moisStr);
+
   console.log(`\n── Module 5 Debug — ${moisStr} ──`);
-  if (!violations.length) { console.log('  ✓ Aucune violation de repos.'); return; }
-  console.log(`${violations.length} violation(s) de repos < 11h :`);
-  violations.forEach(v => {
+
+  const vR = detecterViolations(plan, moisStr);
+  console.log(`Repos < 11h : ${vR.length}`);
+  vR.forEach(v => {
     const e = educById(v.eid);
-    console.log(`  ${(e?.prenom||'?').padEnd(10)} : ${v.dernDs} ${v.dernPlage.nom.padEnd(18)} → ${v.ds} ${v.plage.nom} (${v.gapH}h repos)`);
+    console.log(`  ${(e?.prenom||'?').padEnd(10)} : ${v.dernDs} ${v.dernPlage.nom} → ${v.ds} ${v.plage.nom} (${v.gapH}h)`);
   });
-  return violations;
+
+  const vC = detecterViolationsConsec(plan, moisStr);
+  console.log(`Jours consécutifs > 6 : ${vC.length}`);
+  vC.forEach(v => {
+    const e = educById(v.eid);
+    console.log(`  ${(e?.prenom||'?').padEnd(10)} : ${v.longueur}j d'affilée (${v.streak[0]} → ${v.streak[v.streak.length-1]})`);
+  });
+
+  const v5 = detecterViolations50h(plan, moisStr);
+  console.log(`Semaines > 50h : ${v5.length}`);
+  v5.forEach(v => {
+    const e = educById(v.eid);
+    console.log(`  ${(e?.prenom||'?').padEnd(10)} : sem ${v.semaine} = ${v.heures}h (+${v.surplus.toFixed(1)}h)`);
+  });
+
+  return { vRepos: vR, vConsec: vC, v50h: v5 };
 }
 window.debugViolations = debugViolations;
 
