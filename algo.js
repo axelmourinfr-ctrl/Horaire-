@@ -1063,12 +1063,26 @@ function planifierNuitVend(moisStr, savePtr) {
       return;
     }
 
-    // Trouver le prochain éduc disponible (non absent)
+    // Chercher le prochain éduc disponible (non absent, pas en conflit WE)
+    // Conflit : nuit VEN (fin 09:00 SAM) + journée WE SAM (début 09:00) = 0h repos → illégal
+    const dSam = dayStr(new Date(new Date(ds+'T12:00').getTime() + 86400000));
+    const planMois = (typeof horaire !== 'undefined' && horaire[moisStr]) ? horaire[moisStr] : {};
+
     let educ = null;
     for (let i = 0; i < elig.length; i++) {
       const cand = elig[ptr % elig.length];
       ptr = (ptr + 1) % elig.length;
-      if (!isAbsent(cand.id, ds)) { educ = cand; break; }
+      if (isAbsent(cand.id, ds)) continue;
+      // Vérifier qu'il n'est pas en journée WE le samedi suivant (repos 11h impossible)
+      const samPlan = planMois[dSam] || {};
+      const enJourneeSam = Object.entries(samPlan).some(([pid, ids]) => {
+        if (String(pid).startsWith('_') || !Array.isArray(ids)) return false;
+        const p = plageById(+pid);
+        return p && p.type === 'journee' && ids.map(Number).includes(cand.id);
+      });
+      if (enJourneeSam) continue; // conflit nuit VEN → journée SAM → passer au suivant
+      educ = cand;
+      break;
     }
 
     if (!educ) {
