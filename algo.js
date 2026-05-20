@@ -1158,23 +1158,19 @@ window.debugNuitVend = debugNuitVend;
 // ================================================================
 
 /**
- * Pré-alloue les demandes "préférer" ET les patterns appris automatiquement.
+ * Pré-alloue les demandes "préférer" de chaque éduc pour le mois.
+ * Chaque semaine du mois, si l'éduc n'est pas absent et que la plage
+ * s'applique ce jour-là, le créneau est verrouillé.
  *
- * Deux sources de locks :
- *  1. Demandes explicites "préférer" (configurées dans la fiche éduc)
- *  2. Auto-patterns : habitudes apprises des mois précédents via buildPatterns
- *     → Si un éduc a fait la même plage le même jour ≥ 3 fois et que c'est
- *       dominant (≥ 60% de ses occurrences ce jour), on le pré-alloue.
- *     → Priorité inférieure aux demandes explicites.
- *     → Respecte les absences et les locks M2/M3.
+ * Note : la stabilité des cycles SANS demandes explicites est portée par
+ * `bonusStabilite` dans le score de v13 (poids -55 max pour les habitudes fortes).
  */
 function planifierModeleHebdo(moisStr) {
   const [yr, mo] = moisStr.split('-').map(Number);
   const jours = getDays(yr, mo);
-  const plan = {};
-  const log  = [];
+  const plan  = {};
+  const log   = [];
 
-  // ── Source 1 : Demandes explicites "préférer" ──
   educs.forEach(e => {
     (e.demandes || []).filter(d => d.type === 'preferer').forEach(dem => {
       jours.filter(d => dowIdx(d) === dem.jour).forEach(d => {
@@ -1201,62 +1197,6 @@ function planifierModeleHebdo(moisStr) {
           plan[ds][`_lock_${pid}`] = 'locked';
           log.push({ ds, educ: e.prenom, plage: plage.nom, source: 'demande' });
         });
-      });
-    });
-  });
-
-  // ── Source 2 : Auto-patterns appris (buildPatterns des 4 derniers mois) ──
-  const patterns = buildPatterns(moisStr);
-  const SEUIL_CNT   = 3;   // au moins 3 occurrences passées
-  const SEUIL_RATIO = 0.55; // dominant à ≥ 55% des occurrences ce jour
-
-  educs.forEach(e => {
-    const pat = patterns[String(e.id)];
-    if (!pat) return;
-
-    [0, 1, 2, 3, 4].forEach(dow => { // jours de semaine uniquement (WE gérés par M2)
-      if (!(e.jours || []).includes(dow)) return;
-      const slotCounts = pat[dow] || {};
-      const total = Object.values(slotCounts).reduce((s, v) => s + v, 0);
-      if (total < 1) return;
-
-      // Trouver la plage dominante ce jour pour cet éduc
-      const [pidStr, cnt] = Object.entries(slotCounts).sort((a, b) => b[1] - a[1])[0] || [];
-      if (!pidStr || !cnt) return;
-      if (cnt < SEUIL_CNT || cnt / total < SEUIL_RATIO) return;
-
-      const pid   = +pidStr;
-      const plage = plageById(pid);
-      if (!plage || isReunion(plage)) return;
-      if (!(plage.jours || []).includes(dow)) return;
-
-      // Pré-allouer sur tous les jours correspondants du mois
-      jours.filter(d => dowIdx(d) === dow).forEach(d => {
-        const ds = dayStr(d);
-        if (isAbsent(e.id, ds)) return;
-        if (isFerie(ds)) return;
-
-        // Ne pas écraser un lock explicite déjà posé (demande ou M2/M3)
-        const planMois = horaire[moisStr] || {};
-        if ((planMois[ds] || {})[`_lock_${pid}`] === 'locked') return;
-        if ((plan[ds] || {})[`_lock_${pid}`] === 'locked') {
-          // Slot déjà pré-alloué par une demande explicite — ne pas interférer
-          return;
-        }
-
-        // Vérifier que l'éduc n'est pas déjà pré-alloué sur un autre slot ce jour
-        const dejaAlloue = plages.some(p2 => {
-          if (p2.id === pid) return false;
-          return ((plan[ds] || {})[p2.id] || []).map(Number).includes(e.id);
-        });
-        if (dejaAlloue) return;
-
-        if (!plan[ds]) plan[ds] = {};
-        if (!(plan[ds][pid] || []).map(Number).includes(e.id)) {
-          plan[ds][pid] = [...(plan[ds][pid] || []), e.id];
-        }
-        plan[ds][`_lock_${pid}`] = 'locked';
-        log.push({ ds, educ: e.prenom, plage: plage.nom, source: `auto (${cnt}x)` });
       });
     });
   });
