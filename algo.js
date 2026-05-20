@@ -2554,28 +2554,21 @@ function premierLundiMois(yr, mo) {
 
 /**
  * Génère le planning mensuel par cycle stable.
- * @param {string}  moisStr      - '2026-07'
- * @param {object}  planLocks    - locks existants (M2/M3/M4/nuits)
- * @param {function} L           - log function
- * @returns {object} planning complet
+ * Applique le cycle de référence semaine par semaine.
+ * Pour les slots alternatifs : le groupe actif = isoWeekNumber(d) % N.
  */
 function genererPlanningCyclique(moisStr, planLocks, L) {
   const [yr, mo] = moisStr.split('-').map(Number);
   const jours     = getDays(yr, mo);
 
-  // Charger ou créer le cycle
-  // Calculer l'offset de rotation mensuel (change chaque mois)
-  const [yr0, mo0] = moisStr.split('-').map(Number);
-  const rotOffset = (yr0 * 12 + mo0) % Math.max(1, educs.filter(e => e.contrat && !e.contrat.toLowerCase().includes('mi-temps')).length);
-
+  // Charger ou créer le cycle (recréer si structure invalide)
   let cycle = loadCycle();
-  // Recréer le cycle si invalide OU si le rotationOffset a changé (nouveau mois)
-  if (!cycleEstValide(cycle) || cycle.rotationOffset !== rotOffset) {
-    cycle = creerCycleInitial(rotOffset);
+  if (!cycleEstValide(cycle)) {
+    cycle = creerCycleInitial();
     saveCycle(cycle);
-    if (L) L(`  M7 : cycle créé (rotation offset ${rotOffset})`, null);
+    if (L) L('  M7 : cycle créé depuis les demandes de l\'équipe', null);
   } else {
-    if (L) L('  M7 : cycle chargé', null);
+    if (L) L('  M7 : cycle stable chargé', null);
   }
 
   const planning = {};
@@ -2585,13 +2578,15 @@ function genererPlanningCyclique(moisStr, planLocks, L) {
     planning[ds] = { ...(planLocks[ds] || {}) };
   });
 
-  // Pour chaque jour du mois, appliquer le cycle du jour de semaine correspondant
+  // Pour chaque jour du mois, appliquer le cycle
   jours.forEach(d => {
     const ds  = dayStr(d);
     const dow = dowIdx(d);
     const we  = isWEDay(d);
     const fe  = isFerie(ds);
     if (we || fe) return; // WE géré par M2, fériés = réunion uniquement
+
+    const weekNum = isoWeekNumber(d); // numéro ISO de semaine (1-53)
 
     const plagesDuJour = plages.filter(p =>
       !isReunion(p) && !isNuitP(p) && (p.jours || []).includes(dow)
@@ -2600,69 +2595,76 @@ function genererPlanningCyclique(moisStr, planLocks, L) {
     plagesDuJour.forEach(p => {
       // Ne pas écraser les locks M2/M3/M4
       if (planning[ds][`_lock_${p.id}`] === 'locked') return;
-      // Ne pas écraser les nuits déjà pre-allouées
-      if (planning[ds][p.id] && isNuitP(p)) return;
 
-      const reqMin   = +(p.min) || 1;
-      const assignes = ((cycle.assignments[dow] || {})[p.id] || []).map(Number);
+      const key      = `${dow}_${p.id}`;
+      const slotData = cycle.slots?.[key];
+      if (!slotData || slotData.type === 'tournante') return;
 
-      // Filtrer ceux disponibles CE JOUR (exceptions sans casser le cycle)
-      const dispo = assignes.filter(eid => {
+      const reqMin = +(p.min) || 1;
+
+      // Déterminer le groupe actif selon la parité de semaine ISO
+      let groupeRef;
+      if (slotData.type === 'alternating' && slotData.groups.length > 1) {
+        // Alternance : semaine ISO % nombre de groupes
+        const groupIdx = (weekNum - 1) % slotData.groups.length;
+        groupeRef = slotData.groups[groupIdx] || slotData.groups[0];
+      } else {
+        // Fixe (1 seul groupe)
+        groupeRef = slotData.groups[0] || [];
+      }
+
+      // Filtrer les disponibles du groupe de référence
+      const dispo = groupeRef.map(Number).filter(eid => {
         if (isAbsent(eid, ds)) return false;
-        // Repos : a-t-il fait une nuit la nuit précédente ?
-        const dPrev = new Date(d.getTime() - 86400000);
-        const dsPrev = dayStr(dPrev);
-        const aFaitNuitAvant = plages.filter(pn => isNuitP(pn) && !isReunion(pn)).some(pn =>
+        // Pas en nuit la veille (repos)
+        const dsPrev = dayStr(new Date(d.getTime() - 86400000));
+        const nuitAvant = plages.filter(pn => isNuitP(pn) && !isReunion(pn)).some(pn =>
           ((planning[dsPrev] || {})[pn.id] || []).map(Number).includes(eid)
         );
-        if (aFaitNuitAvant) return false;
-        // Fait-il une nuit CE SOIR ?
-        const aFaitNuitSoir = plages.filter(pn => isNuitP(pn) && !isReunion(pn)).some(pn =>
+        if (nuitAvant) return false;
+        // Pas en nuit ce soir (soir→nuit = 0h gap)
+        const nuitSoir = plages.filter(pn => isNuitP(pn) && !isReunion(pn)).some(pn =>
           ((planning[ds] || {})[pn.id] || []).map(Number).includes(eid)
         );
-        if (aFaitNuitSoir) return false;
+        if (nuitSoir) return false;
         return true;
       });
 
       let ids = [...dispo];
 
-      // Si pas assez de monde du cycle → chercher des remplaçants pour aujourd'hui
+      // Si pas assez du groupe de référence → chercher remplaçants temporaires
       if (ids.length < reqMin) {
         const idsSet = new Set(ids);
-        const cands = educs
+        const rempl = educs
           .filter(e => {
             if (idsSet.has(e.id)) return false;
             if (!(e.jours || []).includes(dow)) return false;
             if (isAbsent(e.id, ds)) return false;
             if ((e.excls || []).includes(p.id)) return false;
-            // Pas en nuit aujourd'hui
-            const faitNuit = plages.filter(pn => isNuitP(pn)).some(pn =>
-              ((planning[ds] || {})[pn.id] || []).map(Number).includes(e.id)
-            );
-            if (faitNuit) return false;
-            // Repos depuis nuit précédente
-            const dsPrev = dayStr(new Date(d.getTime() - 86400000));
-            const faitNuitPrev = plages.filter(pn => isNuitP(pn)).some(pn =>
-              ((planning[dsPrev] || {})[pn.id] || []).map(Number).includes(e.id)
-            );
-            if (faitNuitPrev) return false;
             // Pas déjà sur une autre plage ce jour
             const dejaCeJour = plages.some(p2 => {
-              if (p2.id === p.id) return false;
+              if (p2.id === p.id || isNuitP(p2)) return false;
               return ((planning[ds][p2.id] || []).map(Number)).includes(e.id);
             });
             if (dejaCeJour) return false;
-            return true;
+            // Pas nuit la veille ni ce soir
+            const dsPrev = dayStr(new Date(d.getTime() - 86400000));
+            const fNuitAv = plages.filter(pn => isNuitP(pn)).some(pn =>
+              ((planning[dsPrev] || {})[pn.id] || []).map(Number).includes(e.id)
+            );
+            if (fNuitAv) return false;
+            const fNuitSo = plages.filter(pn => isNuitP(pn)).some(pn =>
+              ((planning[ds] || {})[pn.id] || []).map(Number).includes(e.id)
+            );
+            return !fNuitSo;
           })
           .sort((a, b) => {
-            // Préférer ceux qui n'ont pas de demande "éviter" ce slot
+            // Préférer ceux sans demande éviter + pas de conflit demande
             const aEvit = (a.demandes || []).some(d => d.jour === dow && d.type === 'eviter' && (d.plageIds || []).includes(p.id));
             const bEvit = (b.demandes || []).some(d => d.jour === dow && d.type === 'eviter' && (d.plageIds || []).includes(p.id));
             return (aEvit ? 1 : 0) - (bEvit ? 1 : 0);
           });
-
-        const besoin = reqMin - ids.length;
-        ids = [...ids, ...cands.slice(0, besoin).map(e => e.id)];
+        ids = [...ids, ...rempl.slice(0, reqMin - ids.length).map(e => e.id)];
       }
 
       if (ids.length > 0) planning[ds][p.id] = ids;
@@ -2673,7 +2675,7 @@ function genererPlanningCyclique(moisStr, planLocks, L) {
       const pReu = plages.find(p => isReunion(p));
       if (pReu && !(planning[ds][`_lock_${pReu.id}`] === 'locked')) {
         planning[ds][pReu.id] = educs
-          .filter(e => !(e.jours || []).includes(4) === false)
+          .filter(e => (e.jours || []).includes(4))
           .map(e => e.id);
       }
     }

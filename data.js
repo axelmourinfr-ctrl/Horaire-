@@ -85,6 +85,8 @@ function load(){
   try{
     const cfg = JSON.parse(localStorage.getItem('planeduc_v3_config')||'{}');
     if(cfg.educs)       educs       = cfg.educs;
+    // Auto-assign color if missing (éducs créés avant cette feature)
+    educs.forEach((e, i) => { if (!e.color) e.color = COLORS[i % COLORS.length]; });
     if(cfg.plages)      plages      = cfg.plages;
     if(cfg.reglesL)     reglesL     = cfg.reglesL;
     if(cfg.reglesI)     reglesI     = cfg.reglesI;
