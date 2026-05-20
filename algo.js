@@ -979,11 +979,13 @@ function bonusStabilite(e,dow,plage,patterns){
   if(!pat||!pat[dow]||!pat[dow][plage.id]) return 0;
   const cnt=pat[dow][plage.id]||0;
   // Progression forte : l'habitude s'ancre exponentiellement
-  if(cnt>=8)  return -35; // très forte habitude → très prioritaire
-  if(cnt>=6)  return -28;
-  if(cnt>=4)  return -20;
-  if(cnt>=2)  return -12;
-  return -5;
+  // Poids augmentés pour rivaliser avec les critères d'équité heures
+  if(cnt>=8)  return -55; // habitude très ancrée → quasi-garantie
+  if(cnt>=6)  return -44;
+  if(cnt>=4)  return -33;
+  if(cnt>=2)  return -22;
+  if(cnt>=1)  return -12; // dès la 1ère occurrence : signal fort
+  return 0;
 }
 
 // ================================================================
@@ -1156,57 +1158,105 @@ window.debugNuitVend = debugNuitVend;
 // ================================================================
 
 /**
- * Pré-alloue les demandes "préférer" de chaque éduc pour le mois.
- * Chaque semaine du mois, si l'éduc n'est pas absent et que la plage
- * s'applique ce jour-là, le créneau est verrouillé.
- * saveFlag=true lors de la vraie génération.
+ * Pré-alloue les demandes "préférer" ET les patterns appris automatiquement.
+ *
+ * Deux sources de locks :
+ *  1. Demandes explicites "préférer" (configurées dans la fiche éduc)
+ *  2. Auto-patterns : habitudes apprises des mois précédents via buildPatterns
+ *     → Si un éduc a fait la même plage le même jour ≥ 3 fois et que c'est
+ *       dominant (≥ 60% de ses occurrences ce jour), on le pré-alloue.
+ *     → Priorité inférieure aux demandes explicites.
+ *     → Respecte les absences et les locks M2/M3.
  */
 function planifierModeleHebdo(moisStr) {
   const [yr, mo] = moisStr.split('-').map(Number);
   const jours = getDays(yr, mo);
   const plan = {};
-  const log = [];
+  const log  = [];
 
+  // ── Source 1 : Demandes explicites "préférer" ──
   educs.forEach(e => {
-    const prefDemandes = (e.demandes || []).filter(d => d.type === 'preferer');
-    if (!prefDemandes.length) return;
-
-    prefDemandes.forEach(dem => {
-      // Tous les jours du mois qui correspondent à ce dow
-      const joursCibles = jours.filter(d => dowIdx(d) === dem.jour);
-      joursCibles.forEach(d => {
+    (e.demandes || []).filter(d => d.type === 'preferer').forEach(dem => {
+      jours.filter(d => dowIdx(d) === dem.jour).forEach(d => {
         const ds = dayStr(d);
-        // Absent → passer
         if (isAbsent(e.id, ds)) return;
-        // Férié → passer (G8 prime)
         if (isFerie(ds)) return;
-
         dem.plageIds.forEach(pid => {
           const plage = plageById(pid);
-          if (!plage) return;
-          // La plage doit s'appliquer ce jour
-          if (!(plage.jours || []).includes(dem.jour)) return;
-          // Ne pas écraser un verrou M2/M3 existant (sauf si ce slot n'est pas encore lockée)
-          const planMois = (typeof horaire !== 'undefined' && horaire[moisStr]) ? horaire[moisStr] : {};
+          if (!plage || !(plage.jours || []).includes(dem.jour)) return;
+          const planMois = horaire[moisStr] || {};
+          if (!plan[ds]) plan[ds] = {};
+          // Si déjà lockée par M2/M3, ajouter l'éduc à la liste existante
           if ((planMois[ds] || {})[`_lock_${pid}`] === 'locked') {
-            // Slot déjà lockée — ajouter l'éduc si pas déjà dedans (ex: M2 a mis 1 personne, on peut en ajouter)
-            const existingIds = ((planMois[ds] || {})[pid] || []).map(Number);
-            if (!existingIds.includes(e.id)) {
-              if (!plan[ds]) plan[ds] = {};
-              plan[ds][pid] = [...existingIds, e.id];
+            const existing = ((planMois[ds] || {})[pid] || []).map(Number);
+            if (!existing.includes(e.id)) {
+              plan[ds][pid] = [...(plan[ds][pid] || existing), e.id];
               plan[ds][`_lock_${pid}`] = 'locked';
             }
             return;
           }
-          // Créer ou compléter le verrou
-          if (!plan[ds]) plan[ds] = {};
-          const existingPlan = (plan[ds][pid] || []).map(Number);
-          if (!existingPlan.includes(e.id)) {
-            plan[ds][pid] = [...existingPlan, e.id];
+          if (!(plan[ds][pid] || []).map(Number).includes(e.id)) {
+            plan[ds][pid] = [...(plan[ds][pid] || []), e.id];
           }
           plan[ds][`_lock_${pid}`] = 'locked';
-          log.push({ ds, educ: e.prenom, plage: plage.nom });
+          log.push({ ds, educ: e.prenom, plage: plage.nom, source: 'demande' });
         });
+      });
+    });
+  });
+
+  // ── Source 2 : Auto-patterns appris (buildPatterns des 4 derniers mois) ──
+  const patterns = buildPatterns(moisStr);
+  const SEUIL_CNT   = 3;   // au moins 3 occurrences passées
+  const SEUIL_RATIO = 0.55; // dominant à ≥ 55% des occurrences ce jour
+
+  educs.forEach(e => {
+    const pat = patterns[String(e.id)];
+    if (!pat) return;
+
+    [0, 1, 2, 3, 4].forEach(dow => { // jours de semaine uniquement (WE gérés par M2)
+      if (!(e.jours || []).includes(dow)) return;
+      const slotCounts = pat[dow] || {};
+      const total = Object.values(slotCounts).reduce((s, v) => s + v, 0);
+      if (total < 1) return;
+
+      // Trouver la plage dominante ce jour pour cet éduc
+      const [pidStr, cnt] = Object.entries(slotCounts).sort((a, b) => b[1] - a[1])[0] || [];
+      if (!pidStr || !cnt) return;
+      if (cnt < SEUIL_CNT || cnt / total < SEUIL_RATIO) return;
+
+      const pid   = +pidStr;
+      const plage = plageById(pid);
+      if (!plage || isReunion(plage)) return;
+      if (!(plage.jours || []).includes(dow)) return;
+
+      // Pré-allouer sur tous les jours correspondants du mois
+      jours.filter(d => dowIdx(d) === dow).forEach(d => {
+        const ds = dayStr(d);
+        if (isAbsent(e.id, ds)) return;
+        if (isFerie(ds)) return;
+
+        // Ne pas écraser un lock explicite déjà posé (demande ou M2/M3)
+        const planMois = horaire[moisStr] || {};
+        if ((planMois[ds] || {})[`_lock_${pid}`] === 'locked') return;
+        if ((plan[ds] || {})[`_lock_${pid}`] === 'locked') {
+          // Slot déjà pré-alloué par une demande explicite — ne pas interférer
+          return;
+        }
+
+        // Vérifier que l'éduc n'est pas déjà pré-alloué sur un autre slot ce jour
+        const dejaAlloue = plages.some(p2 => {
+          if (p2.id === pid) return false;
+          return ((plan[ds] || {})[p2.id] || []).map(Number).includes(e.id);
+        });
+        if (dejaAlloue) return;
+
+        if (!plan[ds]) plan[ds] = {};
+        if (!(plan[ds][pid] || []).map(Number).includes(e.id)) {
+          plan[ds][pid] = [...(plan[ds][pid] || []), e.id];
+        }
+        plan[ds][`_lock_${pid}`] = 'locked';
+        log.push({ ds, educ: e.prenom, plage: plage.nom, source: `auto (${cnt}x)` });
       });
     });
   });
@@ -1310,73 +1360,7 @@ function slotLock(planning, ds, plageId){
   return (planning[ds]||{})[`_lock_${plageId}`] === 'locked';
 }
 
-/**
- * Détecte et corrige les violations du repos 11h dans le planning.
- * Modifie planning en place. Retourne { violations, fixes }.
- */
-function filtrerLegalite(planning, moisStr){
-  const minReposMs = 11 * 3600000; // 11h en ms
-  const violations = [];
-  const fixes      = [];
-
-  educs.forEach(e => {
-    // Collecter toutes les prestations de cet éduc, triées par début absolu
-    const prest = [];
-    Object.keys(planning).filter(ds => ds.match(/^\d{4}-\d{2}-\d{2}$/)).sort().forEach(ds => {
-      plages.forEach(p => {
-        if(isReunion(p)) return; // la réunion n'est pas concernée par le repos 11h
-        const ids = ((planning[ds]||{})[p.id]||[]).map(Number);
-        if(!ids.includes(e.id)) return;
-        prest.push({
-          ds, plage:p, pid:p.id,
-          debutMs: debutAbsMs(ds, p),
-          finMs:   finAbsMs(ds, p),
-          locked:  slotLock(planning, ds, p.id)
-        });
-      });
-    });
-    prest.sort((a,b)=>a.debutMs-b.debutMs);
-
-    // Vérifier le repos entre chaque paire consécutive
-    let i = 0;
-    while(i < prest.length - 1){
-      const p1 = prest[i];
-      const p2 = prest[i+1];
-      const repos = p2.debutMs - p1.finMs;
-
-      if(repos >= 0 && repos < minReposMs){
-        const reposH = (repos/3600000).toFixed(1);
-        violations.push({
-          educ: e.prenom,
-          fin:  `${p1.ds} ${p1.plage.nom}→${p1.plage.fin}`,
-          debut:`${p2.ds} ${p2.plage.nom} ${p2.plage.debut}`,
-          reposH
-        });
-
-        if(!p2.locked){
-          // Retirer educ du slot postérieur
-          planning[p2.ds][p2.pid] = (planning[p2.ds][p2.pid]||[]).map(Number).filter(id=>id!==e.id);
-          fixes.push(`✓ Retiré ${e.prenom} de [${p2.plage.nom} ${p2.ds}] (repos ${reposH}h < 11h)`);
-          prest.splice(i+1,1); // re-vérifier sans ce slot
-        } else if(!p1.locked){
-          // p2 est locké → retirer educ du slot antérieur
-          planning[p1.ds][p1.pid] = (planning[p1.ds][p1.pid]||[]).map(Number).filter(id=>id!==e.id);
-          fixes.push(`✓ Retiré ${e.prenom} de [${p1.plage.nom} ${p1.ds}] (repos ${reposH}h < 11h, slot suivant locké)`);
-          prest.splice(i,1);
-          if(i>0) i--; // re-vérifier avec le précédent
-        } else {
-          // Les deux sont lockés → impossible de corriger
-          fixes.push(`⚠ Conflit repos non corrigeable : ${e.prenom} ${p1.ds}→${p2.ds} (2 slots lockés)`);
-          i++;
-        }
-      } else {
-        i++;
-      }
-    }
-  });
-
-  return { violations, fixes };
-}
+// (filtrerLegalite définie dans Module 5 plus bas)
 
 /**
  * Debug Module 5 : affiche les violations du mois sans corriger.
@@ -1486,80 +1470,120 @@ function detecterViolations(planning, moisStr) {
 }
 
 /**
- * Corrige les violations en retirant l'éduc violant du 2ème slot.
- * Si le slot devient court-staffé, cherche un remplaçant disponible.
- * Retourne { corriges, nonCorriges }.
+ * Cherche un remplaçant légal pour couvrir un slot après retrait de eid.
+ * Tri : sans conflit demandes d'abord, puis en sacrifiant les demandes si besoin.
+ */
+function chercherRemplacant(planning, ds, plage, exclure, dernFin) {
+  const d     = new Date(ds + 'T12:00');
+  const dow   = dowIdx(d);
+  const REPOS = 11;
+  const debut = debutPrestMs(d, plage);
+
+  const candidats = educs.filter(e => {
+    if (exclure.includes(e.id)) return false;
+    if (!(e.jours || []).includes(dow)) return false;
+    if (isAbsent(e.id, ds)) return false;
+    if ((e.excls || []).includes(plage.id)) return false;
+    if (!e.acceptePause) {
+      const occupe = plages.some(p2 => {
+        if (p2.id === plage.id) return false;
+        return ((planning[ds][p2.id] || []).map(Number)).includes(e.id);
+      });
+      if (occupe) return false;
+    }
+    const derF = dernFin[e.id];
+    if (derF) {
+      const gap = (debut - derF) / 3_600_000;
+      if (gap >= 0 && gap < REPOS) return false;
+    }
+    return true;
+  });
+
+  if (!candidats.length) return null;
+
+  // Trier : préférer ceux sans conflit de demande sur ce jour+plage
+  candidats.sort((a, b) => {
+    const aEvite = (a.demandes||[]).some(d => d.jour===dow && d.type==='eviter' && (d.plageIds||[]).includes(plage.id));
+    const bEvite = (b.demandes||[]).some(d => d.jour===dow && d.type==='eviter' && (d.plageIds||[]).includes(plage.id));
+    return (aEvite ? 1 : 0) - (bEvite ? 1 : 0);
+  });
+
+  return candidats[0];
+}
+
+/**
+ * Corrige les violations de repos.
+ * Hiérarchie : légal > minimum poste > demandes > équité.
+ *
+ * Pour chaque violation (X sur S2, repos insuffisant depuis S1) :
+ *  A) Retirer X de S2 → si S2 >= min : OK
+ *  B) S2 sous-staffé → chercher remplaçant (sacrifie demandes si besoin)
+ *  C) Aucun remplaçant → annuler, essayer retirer X de S1
+ *  D) S1 locké ou impossible → violation irréductible (loggée)
  */
 function corrigerViolations(planning, violations, moisStr) {
   const corriges = [], nonCorriges = [];
-  const REPOS_MIN = 11;
-
-  // Pour chaque violation, ne traiter qu'une fois par (eid, ds, plage)
-  const traites = new Set();
+  const traites  = new Set();
+  const [yr, mo] = moisStr.split('-').map(Number);
 
   violations.forEach(viol => {
-    const { eid, ds, plage, gapH } = viol;
+    const { eid, ds, plage, dernDs, dernPlage } = viol;
     const key = `${eid}_${ds}_${plage.id}`;
     if (traites.has(key)) return;
     traites.add(key);
 
-    const d   = new Date(ds + 'T12:00');
-    const dow = dowIdx(d);
+    const reqMin   = +(plage.min)     || 1;
+    const reqMinS1 = +(dernPlage.min) || 1;
 
-    // Retirer l'éduc violant du 2ème slot (celui qui commence trop tôt)
-    const ids    = (planning[ds][plage.id] || []).map(Number);
-    const newIds = ids.filter(x => x !== eid);
-    planning[ds][plage.id] = newIds;
-
-    // Si le slot est encore suffisamment staffé → pas besoin de remplaçant
-    const reqMin = +(plage.min) || 1;
-    if (newIds.length >= reqMin) {
-      corriges.push({ ...viol, remplacant: null, note: 'slot suffisant sans remplaçant' });
-      return;
-    }
-
-    // Chercher un remplaçant
-    // Reconstruire la fin précédente de chaque candidat pour vérifier leur repos
+    // Reconstruire les fins pour évaluer les repos des candidats
     const dernFin = {};
-    plages.filter(p => !isReunion(p)).forEach(p => {
-      (planning[ds][p.id] || []).map(Number).forEach(id => {
-        const fin = finPrestMs(d, p);
-        if (!dernFin[id] || fin > dernFin[id]) dernFin[id] = fin;
+    getDays(yr, mo).filter(j => dayStr(j) <= ds).forEach(j => {
+      const jds = dayStr(j);
+      plages.filter(p => !isReunion(p)).forEach(p => {
+        (planning[jds]?.[p.id] || []).map(Number).forEach(id => {
+          const fin = finPrestMs(j, p);
+          if (!dernFin[id] || fin > dernFin[id]) dernFin[id] = fin;
+        });
       });
     });
 
-    const candidats = educs.filter(e => {
-      if (e.id === eid) return false;               // l'éduc violant ne peut pas se remplacer lui-même
-      if (newIds.includes(e.id)) return false;      // déjà sur ce slot
-      if (!(e.jours || []).includes(dow)) return false; // jour non travaillé
-      if (isAbsent(e.id, ds)) return false;
-      if ((e.excls || []).includes(plage.id)) return false;
-      // Pas déjà sur une autre prestation ce jour (sauf pause acceptée)
-      if (!e.acceptePause) {
-        const dejaOccupe = plages.some(p2 => {
-          if (p2.id === plage.id) return false;
-          return ((planning[ds][p2.id] || []).map(Number)).includes(e.id);
-        });
-        if (dejaOccupe) return false;
-      }
-      // Vérifier que ce candidat a assez de repos
-      const debutCette = debutPrestMs(d, plage);
-      const derF = dernFin[e.id];
-      if (derF) {
-        const gap = (debutCette - derF) / 3_600_000;
-        if (gap >= 0 && gap < REPOS_MIN) return false;
-      }
-      return true;
-    });
+    // ── A : retirer X de S2 ──
+    const idsS2    = (planning[ds][plage.id] || []).map(Number);
+    const newIdsS2 = idsS2.filter(x => x !== eid);
+    planning[ds][plage.id] = newIdsS2;
 
-    if (candidats.length > 0) {
-      const rempl = candidats[0];
-      planning[ds][plage.id] = [...newIds, rempl.id];
-      corriges.push({ ...viol, remplacant: rempl.prenom });
-    } else {
-      // Aucun remplaçant → slot court-staffé, c'est acceptable
-      nonCorriges.push(viol);
+    if (newIdsS2.length >= reqMin) {
+      corriges.push({ ...viol, note: 'retiré S2, slot suffisant' }); return;
     }
+
+    // ── B : S2 sous-staffé → chercher remplaçant ──
+    const rempl = chercherRemplacant(planning, ds, plage, [eid, ...newIdsS2], dernFin);
+    if (rempl) {
+      planning[ds][plage.id] = [...newIdsS2, rempl.id];
+      corriges.push({ ...viol, remplacant: rempl.prenom, note: 'remplaçant pour S2' }); return;
+    }
+
+    // ── C : annuler S2, essayer S1 ──
+    planning[ds][plage.id] = idsS2;
+    const s1Locked = planning[dernDs]?.[`_lock_${dernPlage.id}`] === 'locked';
+    if (!s1Locked) {
+      const idsS1    = (planning[dernDs]?.[dernPlage.id] || []).map(Number);
+      const newIdsS1 = idsS1.filter(x => x !== eid);
+      if (newIdsS1.length >= reqMinS1) {
+        if (!planning[dernDs]) planning[dernDs] = {};
+        planning[dernDs][dernPlage.id] = newIdsS1;
+        corriges.push({ ...viol, note: 'retiré S1, S1 suffisant' }); return;
+      }
+      const remplS1 = chercherRemplacant(planning, dernDs, dernPlage, [eid, ...newIdsS1], dernFin);
+      if (remplS1) {
+        if (!planning[dernDs]) planning[dernDs] = {};
+        planning[dernDs][dernPlage.id] = [...newIdsS1, remplS1.id];
+        corriges.push({ ...viol, remplacant: remplS1.prenom, note: 'remplaçant pour S1' }); return;
+      }
+    }
+
+    // ── D : impossible ──
+    nonCorriges.push({ ...viol, note: s1Locked ? 'S1+S2 lockés — irréductible' : 'aucun remplaçant légal' });
   });
 
   return { corriges, nonCorriges };
@@ -1627,40 +1651,36 @@ function detecterViolationsConsec(planning, moisStr) {
 }
 
 /**
- * Corrige les violations de jours consécutifs en retirant l'éduc
- * d'une prestation sur un jour de la streak (de préférence non lockée).
+ * Corrige les violations de jours consécutifs.
+ * RÈGLE : ne retire jamais si slot tombe sous son minimum.
  */
 function corrigerConsec(planning, violations) {
   const corriges = [], nonCorriges = [];
   violations.forEach(viol => {
     const { eid, streak } = viol;
-    // Trouver un jour dans la streak (du mois courant, non WE si possible) à libérer
-    const candidatsDsALiberer = streak
-      .filter(ds => planning[ds]) // dans le mois courant
-      .filter(ds => {
-        // Préférer les jours non WE (sam/dim) car les WE sont souvent des blocs essentiels
-        const d = new Date(ds + 'T12:00');
-        return d.getDay() !== 0 && d.getDay() !== 6;
-      });
-    const dsALiberer = candidatsDsALiberer.length
-      ? candidatsDsALiberer[Math.floor(candidatsDsALiberer.length / 2)] // milieu de la streak
-      : streak.filter(ds => planning[ds])[0];
+    // Chercher un jour dans la streak (non WE préféré) où on peut retirer l'éduc
+    // sans passer sous le minimum du slot
+    const joursDansMois = streak.filter(ds => planning[ds]);
+    // Préférer les jours semaine, milieu de streak
+    const candidats = joursDansMois
+      .filter(ds => { const d = new Date(ds+'T12:00'); return d.getDay()!==0&&d.getDay()!==6; });
+    const dsOptions = candidats.length ? candidats : joursDansMois;
+    const dsCible = dsOptions[Math.floor(dsOptions.length/2)];
+    if (!dsCible || !planning[dsCible]) { nonCorriges.push(viol); return; }
 
-    if (!dsALiberer || !planning[dsALiberer]) { nonCorriges.push(viol); return; }
-
-    // Trouver la plage non lockée à retirer
     let retire = false;
     plages.filter(p => !isReunion(p)).forEach(p => {
       if (retire) return;
-      const ids = (planning[dsALiberer][p.id] || []).map(Number);
+      const ids = (planning[dsCible][p.id] || []).map(Number);
       if (!ids.includes(eid)) return;
-      if (planning[dsALiberer][`_lock_${p.id}`] === 'locked') return; // ne pas toucher les locks
-      const newIds = ids.filter(x => x !== eid);
-      planning[dsALiberer][p.id] = newIds;
-      corriges.push({ ...viol, ds: dsALiberer, plage: p });
+      if (planning[dsCible][`_lock_${p.id}`] === 'locked') return;
+      const reqMin = +(p.min) || 1;
+      if (ids.length <= reqMin) return; // ne pas sous-staffer
+      planning[dsCible][p.id] = ids.filter(x => x !== eid);
+      corriges.push({ ...viol, ds: dsCible, plage: p });
       retire = true;
     });
-    if (!retire) nonCorriges.push(viol);
+    if (!retire) nonCorriges.push({ ...viol, note: 'tous les slots au minimum, violation conservée' });
   });
   return { corriges, nonCorriges };
 }
@@ -1709,19 +1729,20 @@ function detecterViolations50h(planning, moisStr) {
 
 /**
  * Corrige les violations 50h en retirant l'éduc de la prestation la plus longue
- * non lockée de la semaine en excès.
+ * non lockée de la semaine, UNIQUEMENT si le slot est au-dessus de son minimum.
  */
 function corriger50h(planning, violations) {
   const corriges = [], nonCorriges = [];
   violations.forEach(viol => {
-    const { eid, slots, surplus } = viol;
-    // Trier les slots par durée décroissante, non lockés en premier
+    const { eid, slots } = viol;
     const candidats = [...slots]
       .filter(s => !s.locked)
+      .filter(s => {
+        const ids = (planning[s.ds][s.plage.id] || []).map(Number);
+        return ids.length > (+(s.plage.min) || 1); // uniquement si sur-staffé
+      })
       .sort((a, b) => b.h - a.h);
-
-    if (!candidats.length) { nonCorriges.push(viol); return; }
-
+    if (!candidats.length) { nonCorriges.push({ ...viol, note: 'tous slots au minimum' }); return; }
     const slot = candidats[0];
     const ids = (planning[slot.ds][slot.plage.id] || []).map(Number);
     planning[slot.ds][slot.plage.id] = ids.filter(x => x !== eid);
@@ -1809,6 +1830,216 @@ function debugViolations(moisStr) {
   return { vRepos: vR, vConsec: vC, v50h: v5 };
 }
 window.debugViolations = debugViolations;
+
+// ================================================================
+// MODULE 6 — Équilibrage final des heures (swaps ciblés post-M5)
+//
+// Après toutes les corrections légales (M5), effectue des swaps
+// ciblés pour rapprocher chaque éduc de sa cible mensuelle.
+//
+// Hiérarchie respectée :
+//   1. Légalité (repos 11h) — vérifiée après chaque swap
+//   2. Minimum de chaque poste — jamais sous-staffé
+//   3. Locks M2/M3/M4 — jamais touchés
+//   4. Demandes/préférences — sacrifiables pour l'équité
+// ================================================================
+
+/**
+ * Vérifie qu'un swap (retirer eSurp, ajouter eDef sur ds+plage)
+ * respecte le repos de 11h pour eDef et ne crée pas de violation
+ * pour eSurp sur ses prestations adjacentes.
+ */
+function swapEstLegal(planning, ds, plage, eSurpId, eDefId, moisStr) {
+  const REPOS  = 11;
+  const d      = new Date(ds + 'T12:00');
+  const debut  = debutPrestMs(d, plage);
+  const fin    = finPrestMs(d, plage);
+  const [yr,mo]= moisStr.split('-').map(Number);
+  const jours  = getDays(yr, mo);
+
+  // Trouver la dernière fin de eDef avant ds
+  let dernFinDef = null;
+  for (let i = jours.length - 1; i >= 0; i--) {
+    const jj = jours[i];
+    if (dayStr(jj) >= ds) continue;
+    const jds = dayStr(jj);
+    let found = false;
+    plages.filter(p => !isReunion(p)).forEach(p => {
+      if (((planning[jds]||{})[p.id]||[]).map(Number).includes(eDefId)) {
+        const f = finPrestMs(jj, p);
+        if (!dernFinDef || f > dernFinDef) { dernFinDef = f; found = true; }
+      }
+    });
+    if (found) break;
+  }
+
+  // Trouver la prochaine prestation de eDef après ds
+  let prochDebutDef = null;
+  for (let i = 0; i < jours.length; i++) {
+    const jj = jours[i];
+    if (dayStr(jj) <= ds) continue;
+    const jds = dayStr(jj);
+    let found = false;
+    plages.filter(p => !isReunion(p)).forEach(p => {
+      if (((planning[jds]||{})[p.id]||[]).map(Number).includes(eDefId)) {
+        const db = debutPrestMs(jj, p);
+        if (!prochDebutDef || db < prochDebutDef) { prochDebutDef = db; found = true; }
+      }
+    });
+    if (found) break;
+  }
+
+  // eDef : repos avant et après ce slot
+  if (dernFinDef && (debut - dernFinDef) / 3_600_000 < REPOS) return false;
+  if (prochDebutDef && (prochDebutDef - fin) / 3_600_000 < REPOS) return false;
+
+  return true;
+}
+
+/**
+ * Équilibre les heures par swaps ciblés.
+ * Retourne { swaps: nombre de swaps effectués }.
+ */
+function equilibrerHeures(planning, moisStr, L) {
+  if (typeof window !== 'undefined' && window.MODULE6_ENABLED === false) return { swaps: 0 };
+
+  const [yr, mo] = moisStr.split('-').map(Number);
+  const jours    = getDays(yr, mo);
+  const MAX_SWAPS = 50;
+  const SEUIL_H   = 3; // ne swapper que si l'écart à la cible est > 3h
+
+  // Calculer les heures actuelles dans le planning final
+  const heures = {};
+  educs.forEach(e => heures[e.id] = 0);
+  jours.forEach(d => {
+    const ds = dayStr(d);
+    plages.filter(p => !isReunion(p)).forEach(p => {
+      ((planning[ds] || {})[p.id] || []).map(Number).forEach(eid => {
+        if (eid in heures) heures[eid] += (p.dureeH || 0);
+      });
+    });
+  });
+
+  // Cible mensuelle par éduc
+  const cible = {};
+  educs.forEach(e => cible[e.id] = getTargetH(e));
+
+  let swaps = 0;
+  let improved = true;
+
+  while (improved && swaps < MAX_SWAPS) {
+    improved = false;
+
+    // Classer surplus (trop d'heures) et déficit (pas assez)
+    const surplus = [...educs]
+      .filter(e => heures[e.id] - cible[e.id] > SEUIL_H)
+      .sort((a, b) => (heures[b.id] - cible[b.id]) - (heures[a.id] - cible[a.id]));
+
+    const deficit = [...educs]
+      .filter(e => cible[e.id] - heures[e.id] > SEUIL_H)
+      .sort((a, b) => (cible[a.id] - heures[a.id]) - (cible[b.id] - heures[b.id]));
+
+    if (!surplus.length || !deficit.length) break;
+
+    outerLoop:
+    for (const eSurp of surplus) {
+      for (const eDef of deficit) {
+        if (eSurp.id === eDef.id) continue;
+
+        for (const d of jours) {
+          const ds  = dayStr(d);
+          const dow = dowIdx(d);
+          if (!planning[ds]) continue;
+
+          for (const p of plages) {
+            if (isReunion(p)) continue;
+            // Ne jamais toucher les slots lockés par M2/M3/M4
+            if ((planning[ds][`_lock_${p.id}`] === 'locked')) continue;
+
+            const ids    = (planning[ds][p.id] || []).map(Number);
+            const reqMin = +(p.min) || 1;
+
+            // eSurp doit être sur ce slot
+            if (!ids.includes(eSurp.id)) continue;
+            // eDef ne doit pas y être déjà
+            if (ids.includes(eDef.id)) continue;
+            // eDef doit pouvoir travailler ce jour
+            if (!(eDef.jours || []).includes(dow)) continue;
+            if (isAbsent(eDef.id, ds)) continue;
+            if ((eDef.excls || []).includes(p.id)) continue;
+            // eDef ne doit pas déjà travailler ce jour (sauf pause acceptée)
+            if (!eDef.acceptePause) {
+              const occupe = plages.some(p2 => {
+                if (p2.id === p.id) return false;
+                return ((planning[ds][p2.id] || []).map(Number)).includes(eDef.id);
+              });
+              if (occupe) continue;
+            }
+
+            const ph = p.dureeH || 0;
+            // Vérifier que le swap améliore nettement l'équité
+            const ecartSurpAvant = heures[eSurp.id] - cible[eSurp.id];
+            const ecartDefAvant  = cible[eDef.id]   - heures[eDef.id];
+            const ecartSurpApres = ecartSurpAvant - ph;
+            const ecartDefApres  = ecartDefAvant  - ph;
+            // Le swap doit réduire le déficit cumulé
+            if (Math.abs(ecartSurpApres) + Math.abs(ecartDefApres) >=
+                Math.abs(ecartSurpAvant) + Math.abs(ecartDefAvant)) continue;
+
+            // Vérifier légalité (repos 11h)
+            if (!swapEstLegal(planning, ds, p, eSurp.id, eDef.id, moisStr)) continue;
+
+            // Appliquer le swap
+            planning[ds][p.id] = ids.filter(x => x !== eSurp.id).concat(eDef.id);
+            heures[eSurp.id] -= ph;
+            heures[eDef.id]  += ph;
+            swaps++;
+            improved = true;
+            break outerLoop;
+          }
+        }
+      }
+    }
+  }
+
+  if (L) {
+    const ecartMax = Math.max(...educs.map(e => Math.abs(heures[e.id] - cible[e.id])));
+    if (swaps > 0) L(`  M6 : ${swaps} swap(s) — écart max résiduel : ${ecartMax.toFixed(1)}h`, null);
+    else L(`  M6 : aucun swap nécessaire (écart max : ${ecartMax.toFixed(1)}h)`, null);
+  }
+  return { swaps, heures, cible };
+}
+
+/**
+ * Debug Module 6 : affiche le solde heures actuel du mois.
+ * Usage console : debugEquite() ou debugEquite('2026-07')
+ */
+function debugEquite(moisStr) {
+  moisStr = moisStr || (typeof currentMonth !== 'undefined' ? currentMonth : null);
+  if (!moisStr) { console.warn('Précisez un mois'); return; }
+  const plan = horaire[moisStr];
+  if (!plan) { console.warn('Pas d\'horaire pour', moisStr); return; }
+  const [yr, mo] = moisStr.split('-').map(Number);
+  const heures = {};
+  educs.forEach(e => heures[e.id] = 0);
+  getDays(yr, mo).forEach(d => {
+    const ds = dayStr(d);
+    plages.filter(p => !isReunion(p)).forEach(p => {
+      ((plan[ds]||{})[p.id]||[]).map(Number).forEach(eid => {
+        if (eid in heures) heures[eid] += (p.dureeH || 0);
+      });
+    });
+  });
+  console.log(`\n── Module 6 Debug — ${moisStr} ──`);
+  console.log(`${'Éduc'.padEnd(12)} ${'H'.padStart(6)} ${'Cible'.padStart(6)} ${'Écart'.padStart(7)}`);
+  console.log('─'.repeat(33));
+  educs.forEach(e => {
+    const c = getTargetH(e);
+    const ec = heures[e.id] - c;
+    console.log(`${e.prenom.padEnd(12)} ${heures[e.id].toString().padStart(6)} ${c.toFixed(0).padStart(6)} ${(ec>=0?'+':'')+ec.toFixed(1).padStart(6)}`);
+  });
+}
+window.debugEquite = debugEquite;
 
 // ================================================================
 // STATS ANNUELLES
@@ -2090,6 +2321,10 @@ async function lancer(){
   // Module 5 — Filtre légalité (corrige les violations de repos post-génération)
   L('Module 5 : vérification légalité...',88); await sl(20);
   filtrerLegalite(result.planning, mois, L);
+
+  // Module 6 — Équilibrage final des heures
+  L('Module 6 : équilibrage heures...',92); await sl(20);
+  equilibrerHeures(result.planning, mois, L);
 
   L('Validation...',93); await sl(30);
   const validation=validatePlanning(result.planning,mois,result.tracker,result.quotas);
