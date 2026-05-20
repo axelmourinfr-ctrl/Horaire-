@@ -2258,6 +2258,32 @@ async function lancer(){
   const result=await genMois(mois,L);
   window._lastDiagnostic=result.diagnostic||[];
 
+  // Module 7 — Cycle Engine (remplace l'affectation jour de genMois)
+  if (typeof window === 'undefined' || window.MODULE7_ENABLED !== false) {
+    L('Module 7 : application du cycle hebdomadaire...',75); await sl(30);
+    // Fusionner le planning cyclique (jours) avec le planning existant (nuits+locks)
+    const planCyclique = genererPlanningCyclique(mois, result.planning, L);
+    // Écraser les plages de jour dans result.planning avec le cycle
+    const [cy7, cm7] = mois.split('-').map(Number);
+    getDays(cy7, cm7).forEach(d => {
+      const ds = dayStr(d);
+      if (!planCyclique[ds]) return;
+      Object.entries(planCyclique[ds]).forEach(([k, v]) => {
+        // Ne pas écraser les locks M2/M3/M4 ni les nuits
+        if (k.startsWith('_lock_')) return;
+        const pid = +k;
+        if (isNaN(pid)) return;
+        const p = plageById(pid);
+        if (!p || isNuitP(p)) return; // garder les nuits de genMois
+        result.planning[ds][k] = v;
+      });
+    });
+    // Apprendre du mois généré pour améliorer le cycle progressivement
+    mettreAJourCycle(result.planning, mois);
+  } else {
+    L('Module 7 désactivé (window.MODULE7_ENABLED = false)', 75);
+  }
+
   // Module 5 — Filtre légalité (corrige les violations de repos post-génération)
   L('Module 5 : vérification légalité...',88); await sl(20);
   filtrerLegalite(result.planning, mois, L);
@@ -2286,6 +2312,336 @@ async function lancer(){
   showAlert('gen-alerts',at,`Horaire genere — Score : ${qs.score}/100 (${qs.label})${validation.errors.length?' — '+validation.errors.length+' poste(s) non couvert(s)':''}`);
   updateMonthLabels();
 }
+
+// ================================================================
+// MODULE 7 — CYCLE ENGINE (cycle hebdomadaire stable)
+//
+// Principe :
+//   1. Pour chaque (jour de semaine, plage), on assigne des éducs
+//      une SEULE FOIS → c'est le cycle de référence du mois.
+//   2. Cette assignation se RÉPÈTE chaque semaine du mois.
+//   3. Si un éduc est absent ou bloqué par repos (nuit la veille) :
+//      un remplaçant est trouvé pour CE jour UNIQUEMENT.
+//      Le cycle n'est pas cassé.
+//   4. Les nuits sont gérées séparément (preAllouerNuits).
+//   5. Persist entre mois : si l'éduc a fait soir lundi en mai,
+//      il fait soir lundi en juin → cycle cross-mois garanti.
+//
+// Kill-switch console : window.MODULE7_ENABLED = false
+// Debug console       : debugCycle('2026-07')
+// ================================================================
+
+const CYCLE_KEY = 'planeduc_v3_cycle';
+
+function saveCycle(cycle) {
+  try { localStorage.setItem(CYCLE_KEY, JSON.stringify(cycle)); } catch(e) {}
+}
+
+function loadCycle() {
+  try { return JSON.parse(localStorage.getItem(CYCLE_KEY) || 'null'); } catch(e) { return null; }
+}
+
+/**
+ * Vérifie que le cycle sauvegardé est encore compatible avec les éducs actuels.
+ * Un cycle est invalide si un éduc a été supprimé ou si les plages ont changé.
+ */
+function cycleEstValide(cycle) {
+  if (!cycle || !cycle.assignments) return false;
+  const eidActuels = new Set(educs.map(e => String(e.id)));
+  // Tous les éducs assignés dans le cycle doivent exister
+  for (const dow of Object.keys(cycle.assignments)) {
+    for (const pid of Object.keys(cycle.assignments[dow])) {
+      for (const eid of (cycle.assignments[dow][pid] || [])) {
+        if (!eidActuels.has(String(eid))) return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * Crée un cycle initial basé sur les demandes et une distribution équitable.
+ * Appelé uniquement si aucun cycle valide n'existe en mémoire.
+ */
+function creerCycleInitial() {
+  const assignments = {}; // dow → {pid → [eids]}
+  const dejaPris    = {}; // eid → dow[]  (pour éviter d'assigner même educ 2 plages/jour)
+
+  educs.forEach(e => dejaPris[e.id] = []);
+
+  [0, 1, 2, 3, 4].forEach(dow => {
+    assignments[dow] = {};
+    const plagesDuJour = plages.filter(p => !isReunion(p) && !isNuitP(p) && (p.jours || []).includes(dow));
+
+    plagesDuJour.forEach(p => {
+      const reqMin = +(p.min) || 1;
+
+      // Candidats : éducs disponibles ce jour, pas encore assignés ce dow
+      const candidats = [...educs]
+        .filter(e => {
+          if (!(e.jours || []).includes(dow)) return false;
+          if (dejaPris[e.id].includes(dow)) return false;
+          if ((e.excls || []).includes(p.id)) return false;
+          return true;
+        })
+        .sort((a, b) => {
+          // Priorité 1 : demande explicite "préférer" ce dow+plage
+          const aPref = (a.demandes || []).some(d => d.jour === dow && d.type === 'preferer' && (d.plageIds || []).includes(p.id));
+          const bPref = (b.demandes || []).some(d => d.jour === dow && d.type === 'preferer' && (d.plageIds || []).includes(p.id));
+          if (aPref !== bPref) return aPref ? -1 : 1;
+          // Priorité 2 : éviter ceux qui ont demande éviter
+          const aEvit = (a.demandes || []).some(d => d.jour === dow && d.type === 'eviter' && (d.plageIds || []).includes(p.id));
+          const bEvit = (b.demandes || []).some(d => d.jour === dow && d.type === 'eviter' && (d.plageIds || []).includes(p.id));
+          if (aEvit !== bEvit) return aEvit ? 1 : -1;
+          // Priorité 3 : contrat (mi-temps après TP pour les gros slots)
+          const aTP = a.contrat !== 'mi-temps' ? 0 : 1;
+          const bTP = b.contrat !== 'mi-temps' ? 0 : 1;
+          if (aTP !== bTP) return aTP - bTP;
+          // Priorité 4 : déterministe (id croissant)
+          return a.id - b.id;
+        });
+
+      const choisis = candidats.slice(0, reqMin);
+      assignments[dow][p.id] = choisis.map(e => e.id);
+      choisis.forEach(e => dejaPris[e.id].push(dow));
+    });
+  });
+
+  return { assignments, created: new Date().toISOString() };
+}
+
+/**
+ * Trouve le premier jour de la semaine 1 du mois (pour lire le cycle de référence).
+ * Retourne la date du lundi de la première semaine complète ou du début du mois.
+ */
+function premierLundiMois(yr, mo) {
+  const debut = new Date(yr, mo - 1, 1);
+  const d = debut.getDay(); // 0=dim, 1=lun, ...
+  const decal = d === 0 ? 1 : (d === 1 ? 0 : 8 - d);
+  return new Date(yr, mo - 1, 1 + decal);
+}
+
+/**
+ * Génère le planning mensuel par cycle stable.
+ * @param {string}  moisStr      - '2026-07'
+ * @param {object}  planLocks    - locks existants (M2/M3/M4/nuits)
+ * @param {function} L           - log function
+ * @returns {object} planning complet
+ */
+function genererPlanningCyclique(moisStr, planLocks, L) {
+  const [yr, mo] = moisStr.split('-').map(Number);
+  const jours     = getDays(yr, mo);
+
+  // Charger ou créer le cycle
+  let cycle = loadCycle();
+  if (!cycleEstValide(cycle)) {
+    cycle = creerCycleInitial();
+    saveCycle(cycle);
+    if (L) L('  M7 : cycle initial créé', null);
+  } else {
+    if (L) L('  M7 : cycle existant chargé', null);
+  }
+
+  const planning = {};
+  // Initialiser avec les locks existants
+  jours.forEach(d => {
+    const ds = dayStr(d);
+    planning[ds] = { ...(planLocks[ds] || {}) };
+  });
+
+  // Pour chaque jour du mois, appliquer le cycle du jour de semaine correspondant
+  jours.forEach(d => {
+    const ds  = dayStr(d);
+    const dow = dowIdx(d);
+    const we  = isWEDay(d);
+    const fe  = isFerie(ds);
+    if (we || fe) return; // WE géré par M2, fériés = réunion uniquement
+
+    const plagesDuJour = plages.filter(p =>
+      !isReunion(p) && !isNuitP(p) && (p.jours || []).includes(dow)
+    );
+
+    plagesDuJour.forEach(p => {
+      // Ne pas écraser les locks M2/M3/M4
+      if (planning[ds][`_lock_${p.id}`] === 'locked') return;
+      // Ne pas écraser les nuits déjà pre-allouées
+      if (planning[ds][p.id] && isNuitP(p)) return;
+
+      const reqMin   = +(p.min) || 1;
+      const assignes = ((cycle.assignments[dow] || {})[p.id] || []).map(Number);
+
+      // Filtrer ceux disponibles CE JOUR (exceptions sans casser le cycle)
+      const dispo = assignes.filter(eid => {
+        if (isAbsent(eid, ds)) return false;
+        // Repos : a-t-il fait une nuit la nuit précédente ?
+        const dPrev = new Date(d.getTime() - 86400000);
+        const dsPrev = dayStr(dPrev);
+        const aFaitNuitAvant = plages.filter(pn => isNuitP(pn) && !isReunion(pn)).some(pn =>
+          ((planning[dsPrev] || {})[pn.id] || []).map(Number).includes(eid)
+        );
+        if (aFaitNuitAvant) return false;
+        // Fait-il une nuit CE SOIR ?
+        const aFaitNuitSoir = plages.filter(pn => isNuitP(pn) && !isReunion(pn)).some(pn =>
+          ((planning[ds] || {})[pn.id] || []).map(Number).includes(eid)
+        );
+        if (aFaitNuitSoir) return false;
+        return true;
+      });
+
+      let ids = [...dispo];
+
+      // Si pas assez de monde du cycle → chercher des remplaçants pour aujourd'hui
+      if (ids.length < reqMin) {
+        const idsSet = new Set(ids);
+        const cands = educs
+          .filter(e => {
+            if (idsSet.has(e.id)) return false;
+            if (!(e.jours || []).includes(dow)) return false;
+            if (isAbsent(e.id, ds)) return false;
+            if ((e.excls || []).includes(p.id)) return false;
+            // Pas en nuit aujourd'hui
+            const faitNuit = plages.filter(pn => isNuitP(pn)).some(pn =>
+              ((planning[ds] || {})[pn.id] || []).map(Number).includes(e.id)
+            );
+            if (faitNuit) return false;
+            // Repos depuis nuit précédente
+            const dsPrev = dayStr(new Date(d.getTime() - 86400000));
+            const faitNuitPrev = plages.filter(pn => isNuitP(pn)).some(pn =>
+              ((planning[dsPrev] || {})[pn.id] || []).map(Number).includes(e.id)
+            );
+            if (faitNuitPrev) return false;
+            // Pas déjà sur une autre plage ce jour
+            const dejaCeJour = plages.some(p2 => {
+              if (p2.id === p.id) return false;
+              return ((planning[ds][p2.id] || []).map(Number)).includes(e.id);
+            });
+            if (dejaCeJour) return false;
+            return true;
+          })
+          .sort((a, b) => {
+            // Préférer ceux qui n'ont pas de demande "éviter" ce slot
+            const aEvit = (a.demandes || []).some(d => d.jour === dow && d.type === 'eviter' && (d.plageIds || []).includes(p.id));
+            const bEvit = (b.demandes || []).some(d => d.jour === dow && d.type === 'eviter' && (d.plageIds || []).includes(p.id));
+            return (aEvit ? 1 : 0) - (bEvit ? 1 : 0);
+          });
+
+        const besoin = reqMin - ids.length;
+        ids = [...ids, ...cands.slice(0, besoin).map(e => e.id)];
+      }
+
+      if (ids.length > 0) planning[ds][p.id] = ids;
+    });
+
+    // Réunion vendredi : tout le monde disponible
+    if (dow === 4) {
+      const pReu = plages.find(p => isReunion(p));
+      if (pReu && !(planning[ds][`_lock_${pReu.id}`] === 'locked')) {
+        planning[ds][pReu.id] = educs
+          .filter(e => !(e.jours || []).includes(4) === false)
+          .map(e => e.id);
+      }
+    }
+  });
+
+  return planning;
+}
+
+/**
+ * Met à jour le cycle en apprenant du mois qui vient d'être généré.
+ * Si un éduc a été déplacé sur une plage différente plusieurs fois,
+ * on peut mettre à jour son cycle → amélioration progressive.
+ */
+function mettreAJourCycle(planning, moisStr) {
+  const [yr, mo] = moisStr.split('-').map(Number);
+  const jours    = getDays(yr, mo);
+  const counts   = {}; // eid → {dow → {pid → count}}
+
+  jours.forEach(d => {
+    const ds  = dayStr(d);
+    const dow = dowIdx(d);
+    const we  = isWEDay(d);
+    const fe  = isFerie(ds);
+    if (we || fe) return;
+
+    plages.filter(p => !isReunion(p) && !isNuitP(p) && (p.jours || []).includes(dow)).forEach(p => {
+      ((planning[ds] || {})[p.id] || []).map(Number).forEach(eid => {
+        if (!counts[eid]) counts[eid] = {};
+        if (!counts[eid][dow]) counts[eid][dow] = {};
+        counts[eid][dow][p.id] = (counts[eid][dow][p.id] || 0) + 1;
+      });
+    });
+  });
+
+  // Récupérer le cycle actuel
+  const cycle = loadCycle();
+  if (!cycle) return;
+
+  let updated = false;
+
+  // Pour chaque éduc, si une plage a été faite 3+ fois ce dow → ancrer dans le cycle
+  educs.forEach(e => {
+    [0, 1, 2, 3, 4].forEach(dow => {
+      const countsDow = (counts[e.id] || {})[dow] || {};
+      const total = Object.values(countsDow).reduce((s, v) => s + v, 0);
+      if (total < 2) return;
+
+      // La plage la plus fréquente ce dow pour cet éduc
+      const [topPid, topCnt] = Object.entries(countsDow).sort((a, b) => b[1] - a[1])[0] || [];
+      if (!topPid || topCnt / total < 0.6) return; // pas assez dominant
+
+      // Vérifier si cet éduc est déjà dans le cycle pour ce dow+pid
+      const assignes = ((cycle.assignments[dow] || {})[topPid] || []).map(Number);
+      if (assignes.includes(e.id)) return; // déjà dans le cycle, pas de changement
+
+      // Retirer cet éduc de toute autre plage de ce dow dans le cycle
+      Object.keys(cycle.assignments[dow] || {}).forEach(pid => {
+        cycle.assignments[dow][pid] = (cycle.assignments[dow][pid] || []).filter(id => id !== e.id);
+      });
+
+      // L'ajouter à sa plage dominante
+      if (!cycle.assignments[dow]) cycle.assignments[dow] = {};
+      if (!cycle.assignments[dow][topPid]) cycle.assignments[dow][topPid] = [];
+      const reqMin = +(plageById(+topPid)?.min) || 1;
+      if (cycle.assignments[dow][topPid].length < reqMin) {
+        cycle.assignments[dow][topPid].push(e.id);
+        updated = true;
+      }
+    });
+  });
+
+  if (updated) saveCycle(cycle);
+  return cycle;
+}
+
+/**
+ * Debug : affiche le cycle actuel.
+ * Usage console : debugCycle()
+ */
+function debugCycle() {
+  const cycle = loadCycle();
+  if (!cycle) { console.log('Aucun cycle en mémoire.'); return; }
+  const jnoms = ['LUN','MAR','MER','JEU','VEN'];
+  console.log('\n── Cycle actuel ──');
+  [0,1,2,3,4].forEach(dow => {
+    const assign = cycle.assignments[dow] || {};
+    Object.entries(assign).forEach(([pid, eids]) => {
+      const p = plageById(+pid);
+      const noms = eids.map(id => educById(+id)?.prenom || '?').join(', ');
+      console.log(`${jnoms[dow]} ${(p?.nom||pid).padEnd(20)} → ${noms}`);
+    });
+  });
+}
+window.debugCycle = debugCycle;
+
+/**
+ * Réinitialise le cycle (pour forcer une nouvelle création).
+ * Usage console : resetCycle()
+ */
+function resetCycle() {
+  localStorage.removeItem(CYCLE_KEY);
+  console.log('Cycle réinitialisé. Prochain génération créera un nouveau cycle.');
+}
+window.resetCycle = resetCycle;
 
 // ================================================================
 // MOTEUR PRINCIPAL — 3 ETAPES
