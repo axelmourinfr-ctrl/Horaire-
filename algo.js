@@ -1302,12 +1302,35 @@ function genererCycleFixe(moisStr) {
     );
     if (pMatin && !slot[`_lock_${pMatin.id}`]) {
       const nuitSoir = (slot[nuitPlage?.id]||[]).map(Number);
-      const dispo    = applyGroup(grid.matin[dow]).filter(eid => {
+      // Vérifier aussi la nuit de la veille (nuit finit 09:00, matin commence 06:30 = impossible)
+      const dsPrev   = dayStr(new Date(d.getTime() - 86400000));
+      const nuitHier = (horaire[moisStr]?.[dsPrev]?.[nuitPlage?.id]||[]).map(Number);
+
+      let dispo = applyGroup(grid.matin[dow]).filter(eid => {
         if (isAbsent(eid, ds)) return false;
-        // Educ qui fait nuit ce soir : autoriser matin seulement si pause acceptée
+        if (nuitHier.includes(eid)) return false; // nuit hier → repos, pas de matin
         if (nuitSoir.includes(eid) && !educById(eid)?.acceptePause) return false;
         return true;
       });
+
+      // ── Fallback : si le groupe cycle est indispo, trouver quelqu'un d'autre ──
+      if (!dispo.length) {
+        const dejaDsIds = new Set(
+          plages.filter(p2=>p2.id!==pMatin.id).flatMap(p2=>(slot[p2.id]||[]).map(Number))
+        );
+        dispo = educs.filter(e => {
+          if (isAbsent(e.id, ds)) return false;
+          if (!(e.jours||[]).includes(dow)) return false;
+          if ((e.excls||[]).includes(pMatin.id)) return false;
+          if (nuitHier.includes(e.id)) return false;
+          if (nuitSoir.includes(e.id) && !e.acceptePause) return false;
+          if (dejaDsIds.has(e.id)) return false; // déjà ailleurs ce jour
+          // Pas d'éviter matin ce jour
+          if ((e.demandes||[]).some(dem=>dem.jour===dow&&dem.type==='eviter'&&(dem.plageIds||[]).includes(pMatin.id))) return false;
+          return true;
+        }).sort((a,b)=>a.id-b.id).slice(0,1).map(e=>e.id);
+      }
+
       if (dispo.length) { slot[pMatin.id]=dispo; slot[`_lock_${pMatin.id}`]='locked'; locks++; }
     }
   });

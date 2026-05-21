@@ -110,6 +110,7 @@ function resetEducForm(){
   if(g('me-heures'))  g('me-heures').value='';
   if(g('me-h-field')) g('me-h-field').style.display='none';
   const pEl=document.getElementById('me-pause'); if(pEl) pEl.checked=false;
+  const cEl=document.getElementById('me-color'); if(cEl) cEl.value=COLORS[educs.length%COLORS.length];
   document.querySelectorAll('#me-jours-grp .chk-pill').forEach((p,i)=>{
     const cb = p.querySelector('input');
     cb.checked = [0,1,2,3,4].includes(i);
@@ -149,6 +150,8 @@ function openEditEduc(id){
   document.getElementById('me-h-field').style.display = e.contrat==='perso' ? '' : 'none';
   const pauseEl = document.getElementById('me-pause');
   if(pauseEl) pauseEl.checked = e.acceptePause||false;
+  const colorEl = document.getElementById('me-color');
+  if(colorEl) colorEl.value = e.color||COLORS[educs.indexOf(e)%COLORS.length]||COLORS[0];
   document.getElementById('me-notes').value = e.notes||'';
   document.querySelectorAll('#me-jours-grp .chk-pill').forEach(p=>{
     const cb = p.querySelector('input');
@@ -171,7 +174,9 @@ function saveEduc(){
   const contrat     = g2('me-contrat') ? g2('me-contrat').value : 'temps-plein';
   const heuresPerso = g2('me-heures')  ? (+g2('me-heures').value || null) : null;
   const pauseEl2    = g2('me-pause');
+  const colorEl2    = g2('me-color');
   const acceptePause= pauseEl2 ? pauseEl2.checked : false;
+  const color       = colorEl2 ? colorEl2.value : COLORS[educs.length%COLORS.length];
   const notes       = g2('me-notes')   ? g2('me-notes').value.trim() : '';
   const editId      = g2('me-id')      ? (+g2('me-id').value || null) : null;
 
@@ -191,9 +196,9 @@ function saveEduc(){
 
   if(editId){
     const idx = educs.findIndex(e=>e.id===editId);
-    if(idx>=0) educs[idx] = {...educs[idx], prenom, nom, contrat, heuresPerso, acceptePause, jours, prefs, excls, notes, demandes};
+    if(idx>=0) educs[idx] = {...educs[idx], prenom, nom, contrat, heuresPerso, acceptePause, color, jours, prefs, excls, notes, demandes};
   } else {
-    educs.push({id:Date.now(), prenom, nom, contrat, heuresPerso, acceptePause, jours, prefs, excls, notes, demandes, color:COLORS[educs.length%COLORS.length]});
+    educs.push({id:Date.now(), prenom, nom, contrat, heuresPerso, acceptePause, color, jours, prefs, excls, notes, demandes});
   }
   save(); renderAll(); closeModal('modal-educ');
 }

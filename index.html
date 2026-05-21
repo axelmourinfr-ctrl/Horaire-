@@ -309,6 +309,22 @@
     <div class="field"><label>Prénom</label><input id="me-prenom" placeholder="Marie"></div>
     <div class="field"><label>Nom</label><input id="me-nom" placeholder="Dupont"></div>
   </div>
+  <div class="field" style="display:flex;align-items:center;gap:12px">
+    <label style="margin:0;white-space:nowrap">Couleur</label>
+    <input type="color" id="me-color" value="#2a5fc8" style="width:44px;height:32px;border:none;border-radius:6px;cursor:pointer;padding:2px">
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#2a5fc8" style="width:22px;height:22px;border-radius:50%;background:#2a5fc8;border:none;cursor:pointer"></button>
+      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#1a7a4a" style="width:22px;height:22px;border-radius:50%;background:#1a7a4a;border:none;cursor:pointer"></button>
+      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#c8622a" style="width:22px;height:22px;border-radius:50%;background:#c8622a;border:none;cursor:pointer"></button>
+      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#7a3fc8" style="width:22px;height:22px;border-radius:50%;background:#7a3fc8;border:none;cursor:pointer"></button>
+      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#c02a2a" style="width:22px;height:22px;border-radius:50%;background:#c02a2a;border:none;cursor:pointer"></button>
+      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#d4800a" style="width:22px;height:22px;border-radius:50%;background:#d4800a;border:none;cursor:pointer"></button>
+      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#1a7a8a" style="width:22px;height:22px;border-radius:50%;background:#1a7a8a;border:none;cursor:pointer"></button>
+      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#8a2a6a" style="width:22px;height:22px;border-radius:50%;background:#8a2a6a;border:none;cursor:pointer"></button>
+      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#6a8a1a" style="width:22px;height:22px;border-radius:50%;background:#6a8a1a;border:none;cursor:pointer"></button>
+      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#3a6a8a" style="width:22px;height:22px;border-radius:50%;background:#3a6a8a;border:none;cursor:pointer"></button>
+    </div>
+  </div>
   <div class="g2">
     <div class="field"><label>Contrat</label>
       <select id="me-contrat" onchange="updateHField()">
