@@ -226,7 +226,7 @@ function renderEducGrid(){
     }).join('');
     return `<div class="educ-card">
       <div class="educ-top">
-        <div class="avatar" style="background:${e.color||COLORS[0]}">${ini}</div>
+        <div class="avatar" style="background:${e.color||COLORS[educs.indexOf(e)%COLORS.length]}">${ini}</div>
         <div style="flex:1;min-width:0">
           <div class="educ-name">${e.prenom} ${e.nom}</div>
           <div class="educ-sub">${e.contrat} - ${hS} - ${jours}</div>
@@ -253,20 +253,18 @@ function addPlage(){
   if(!debut||!fin){ alert('Heures requises.'); return; }
   const jours = [...document.querySelectorAll('#p-jours-grp input:checked')].map(c=>+c.value);
   if(!jours.length){ alert('Sélectionnez au moins un jour.'); return; }
-  const min    = +document.getElementById('p-min').value || 1;
-  const max    = +document.getElementById('p-max').value || min;
-  const tous   = document.getElementById('p-tous').checked;
-  const color  = document.getElementById('p-color').value || '#2a5fc8';
-  const type   = document.getElementById('p-type').value;
-  const groupe = document.getElementById('p-groupe').value || 'auto';
+  const min   = +document.getElementById('p-min').value || 1;
+  const max   = +document.getElementById('p-max').value || min;
+  const tous  = document.getElementById('p-tous').checked;
+  const color = document.getElementById('p-color').value || '#2a5fc8';
+  const type  = document.getElementById('p-type').value;
   const [dh,dm] = debut.split(':').map(Number);
   const [fh,fm] = fin.split(':').map(Number);
   let dureeMin = (fh*60+fm) - (dh*60+dm);
   if(dureeMin<=0) dureeMin += 1440;
-  plages.push({id:Date.now(), nom, type, groupe, debut, fin, dureeH:dureeMin/60, jours, min, max, tous, color});
+  plages.push({id:Date.now(), nom, type, debut, fin, dureeH:dureeMin/60, jours, min, max, tous, color});
   save(); renderAll();
   document.getElementById('p-nom').value = '';
-  document.getElementById('p-groupe').value = 'auto';
   document.querySelectorAll('#p-jours-grp .chk-pill').forEach(p=>{ p.querySelector('input').checked=false; p.classList.remove('on'); });
   document.getElementById('p-tous').checked = false;
   document.getElementById('p-tous-pill').classList.remove('on');
@@ -284,14 +282,10 @@ function renderPlageList(){
   if(!plages.length){ el.innerHTML='<div class="empty"><div class="icon">🕐</div><p>Aucune plage.</p></div>'; return; }
   el.innerHTML = plages.map(p=>{
     const jours = p.jours.map(j=>JOURS[j]).join(', ');
-    const grpLabel = (p.groupe && p.groupe !== 'auto') ? GROUPE_LABELS[p.groupe] || p.groupe : null;
-    const grpBadge = grpLabel
-      ? `<span class="badge b-blue" style="font-size:.65rem">${p.groupe} · ${grpLabel}</span>`
-      : `<span class="badge" style="font-size:.65rem;background:var(--border);color:var(--ink3)">auto</span>`;
     return `<div class="plage-row">
       <div class="plage-dot" style="background:${p.color}"></div>
       <div class="plage-info">
-        <div class="plage-name">${p.nom} ${p.tous?'<span class="badge b-orange">Tous requis</span>':''} ${grpBadge}</div>
+        <div class="plage-name">${p.nom} ${p.tous?'<span class="badge b-orange">Tous requis</span>':''}</div>
         <div class="plage-detail">${p.debut} → ${p.fin} - ${p.dureeH.toFixed(1)}h - min ${p.min} éduc - ${jours}</div>
       </div>
       <button class="btn btn-red btn-sm" onclick="delPlage(${p.id})">Suppr.</button>

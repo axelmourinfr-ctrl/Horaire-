@@ -1156,6 +1156,178 @@ function debugNuitVend(moisStr) {
 window.debugNuitVend = debugNuitVend;
 
 // ================================================================
+// ================================================================
+// MODULE 4B — Cycle fixe matin/nuit
+//
+// Calcule depuis les demandes de l'équipe qui fait quoi chaque jour,
+// et l'applique comme locks AVANT genMois.
+//
+// RÈGLES :
+//   • 1 personne par matin (lun-jeu+ven), fixe ou alternance A/B si 2 veulent
+//   • 1 personne par nuit (lun-jeu), alternance A/B selon parité semaine ISO
+//   • Vendredi nuit = M3 (tournante), non touché ici
+//   • WE = M2 (tournante), non touché ici
+//   • Respecte les locks M2/M3/M4 existants
+// ================================================================
+
+/**
+ * Calcule la grille de référence : qui fait nuit et matin sur chaque jour
+ * de semaine, basé sur les demandes de l'équipe.
+ */
+function computeReferenceGrid() {
+  const nuitPlage = plages.find(p => isNuitP(p) && !isReunion(p));
+  if (!nuitPlage) return { nuit: {}, matin: {} };
+
+  const pMatinDow = {};
+  [0,1,2,3,4].forEach(dow => {
+    pMatinDow[dow] = plages.find(p =>
+      !isReunion(p) && !isNuitP(p) && typePlage(p) === 'matin' &&
+      (p.jours||[]).includes(dow) &&
+      !(p.jours||[]).includes(5) && !(p.jours||[]).includes(6)
+    );
+  });
+
+  const hasPref  = (e, dow, p) => (e.demandes||[]).some(d => d.jour===dow && d.type==='preferer' && (d.plageIds||[]).includes(p.id));
+  const hasEvite = (e, dow, p) => (e.demandes||[]).some(d => d.jour===dow && d.type==='eviter'   && (d.plageIds||[]).includes(p.id));
+  const isElig   = (e, dow, p) => (e.jours||[]).includes(dow) && !(e.excls||[]).includes(p.id);
+
+  const fixedNuit  = new Set();
+  const fixedMatin = new Set();
+  const grid = { nuit: {}, matin: {} };
+
+  // ── NUIT lun-jeu ──
+  [0,1,2,3].forEach(dow => {
+    const cands   = educs.filter(e => isElig(e, dow, nuitPlage) && !hasEvite(e, dow, nuitPlage));
+    const prefs   = cands.filter(e =>  hasPref(e, dow, nuitPlage)).sort((a,b) => a.id-b.id);
+    const autos   = cands.filter(e => !hasPref(e, dow, nuitPlage) && !fixedNuit.has(e.id)).sort((a,b) => a.id-b.id);
+    let groups;
+    if (prefs.length >= 2) {
+      groups = prefs.slice(0,2).map(e => [e.id]);
+      prefs.slice(0,2).forEach(e => fixedNuit.add(e.id));
+    } else if (prefs.length === 1) {
+      fixedNuit.add(prefs[0].id);
+      const auto = autos[0];
+      if (auto) { fixedNuit.add(auto.id); groups = [[prefs[0].id], [auto.id]]; }
+      else groups = [[prefs[0].id]];
+    } else {
+      const deux = autos.slice(0,2);
+      deux.forEach(e => fixedNuit.add(e.id));
+      groups = deux.length===2 ? [[deux[0].id],[deux[1].id]] : deux.length===1 ? [[deux[0].id]] : [[]];
+    }
+    grid.nuit[dow] = { groups, type: groups.length > 1 ? 'alternating' : 'fixed' };
+  });
+
+  // ── MATIN lun-jeu ──
+  [0,1,2,3].forEach(dow => {
+    const pMatin = pMatinDow[dow];
+    if (!pMatin) return;
+    const nuitCeDow  = new Set((grid.nuit[dow]?.groups||[]).flat().map(Number));
+    const prevDow    = dow === 0 ? null : dow - 1;
+    const nuitHier   = new Set(prevDow !== null ? (grid.nuit[prevDow]?.groups||[]).flat().map(Number) : []);
+    const cands      = educs.filter(e =>
+      isElig(e, dow, pMatin) && !hasEvite(e, dow, pMatin) &&
+      !nuitCeDow.has(e.id) && !nuitHier.has(e.id) && !fixedMatin.has(e.id)
+    );
+    const prefs = cands.filter(e =>  hasPref(e, dow, pMatin)).sort((a,b) => a.id-b.id);
+    const autos = cands.filter(e => !hasPref(e, dow, pMatin)).sort((a,b) => a.id-b.id);
+    let groups;
+    if      (prefs.length >= 2) { groups = prefs.slice(0,2).map(e=>[e.id]); prefs.slice(0,2).forEach(e=>fixedMatin.add(e.id)); }
+    else if (prefs.length === 1){ groups = [[prefs[0].id]]; fixedMatin.add(prefs[0].id); }
+    else if (autos.length > 0)  { groups = [[autos[0].id]]; fixedMatin.add(autos[0].id); }
+    else                         { groups = [[]]; }
+    grid.matin[dow] = { groups, type: groups.length > 1 ? 'alternating' : 'fixed' };
+  });
+
+  // ── MATIN vendredi ──
+  {
+    const pMatinV  = pMatinDow[4];
+    if (pMatinV) {
+      const nuitJeu  = new Set((grid.nuit[3]?.groups||[]).flat().map(Number));
+      const cands    = educs.filter(e =>
+        isElig(e, 4, pMatinV) && !hasEvite(e, 4, pMatinV) &&
+        !nuitJeu.has(e.id) && !fixedMatin.has(e.id)
+      );
+      const prefs  = cands.filter(e =>  hasPref(e, 4, pMatinV)).sort((a,b) => a.id-b.id);
+      const autos  = cands.filter(e => !hasPref(e, 4, pMatinV)).sort((a,b) => a.id-b.id);
+      let groups;
+      if      (prefs.length >= 2){ groups = prefs.slice(0,2).map(e=>[e.id]); }
+      else if (prefs.length === 1){ const a=autos[0]; groups=a?[[prefs[0].id],[a.id]]:[[prefs[0].id]]; }
+      else if (autos.length >= 2) { groups = [[autos[0].id],[autos[1].id]]; }
+      else if (autos.length === 1){ groups = [[autos[0].id]]; }
+      else                         { groups = [[]]; }
+      grid.matin[4] = { groups, type: groups.length>1?'alternating':'fixed' };
+    }
+  }
+
+  return grid;
+}
+
+/**
+ * Applique la grille comme locks dans horaire[moisStr] AVANT genMois.
+ * GenMois remplit ensuite le SOIR avec les personnes restantes.
+ */
+function genererCycleFixe(moisStr) {
+  if (typeof window !== 'undefined' && window.MODULE4B_ENABLED === false) return { locks: 0 };
+  const [yr, mo] = moisStr.split('-').map(Number);
+  const jours     = getDays(yr, mo);
+  const grid      = computeReferenceGrid();
+  const nuitPlage = plages.find(p => isNuitP(p) && !isReunion(p));
+  let locks = 0;
+
+  jours.forEach(d => {
+    const ds  = dayStr(d);
+    const dow = dowIdx(d);
+    if (isWEDay(d) || isFerie(ds)) return;
+    if (!horaire[moisStr])     horaire[moisStr]     = {};
+    if (!horaire[moisStr][ds]) horaire[moisStr][ds] = {};
+    const slot    = horaire[moisStr][ds];
+    const weekNum = isoWeekNumber(d);
+
+    function applyGroup(slotData) {
+      if (!slotData?.groups?.length) return [];
+      const idx  = slotData.type==='alternating' ? (weekNum-1)%slotData.groups.length : 0;
+      return (slotData.groups[idx] || slotData.groups[0] || []).map(Number);
+    }
+
+    // Nuit (lun-jeu)
+    if (dow < 4 && nuitPlage && !slot[`_lock_${nuitPlage.id}`]) {
+      const dispo = applyGroup(grid.nuit[dow]).filter(eid => !isAbsent(eid, ds));
+      if (dispo.length) { slot[nuitPlage.id]=dispo; slot[`_lock_${nuitPlage.id}`]='locked'; locks++; }
+    }
+
+    // Matin
+    const pMatin = plages.find(p =>
+      !isReunion(p) && !isNuitP(p) && typePlage(p)==='matin' &&
+      (p.jours||[]).includes(dow) && !(p.jours||[]).includes(5)
+    );
+    if (pMatin && !slot[`_lock_${pMatin.id}`]) {
+      const nuitSoir = (slot[nuitPlage?.id]||[]).map(Number);
+      const dispo    = applyGroup(grid.matin[dow]).filter(eid => {
+        if (isAbsent(eid, ds)) return false;
+        // Educ qui fait nuit ce soir : autoriser matin seulement si pause acceptée
+        if (nuitSoir.includes(eid) && !educById(eid)?.acceptePause) return false;
+        return true;
+      });
+      if (dispo.length) { slot[pMatin.id]=dispo; slot[`_lock_${pMatin.id}`]='locked'; locks++; }
+    }
+  });
+
+  return { locks, grid };
+}
+
+/** Debug console : affiche la grille calculée. Usage : debugCycle() */
+function debugCycle() {
+  const grid = computeReferenceGrid();
+  const J = ['Lun','Mar','Mer','Jeu','Ven'];
+  console.log('\n── Module 4B Cycle ──');
+  [0,1,2,3,4].forEach(dow => {
+    const ma = (grid.matin[dow]?.groups||[]).map((g,i)=>`${g.map(id=>educById(id)?.prenom||id).join('+')}(sem${i%2===0?'A':'B'})`).join(' / ');
+    const nu = dow<4 ? (grid.nuit[dow]?.groups||[]).map((g,i)=>`${g.map(id=>educById(id)?.prenom||id).join('+')}(sem${i%2===0?'A':'B'})`).join(' / ') : 'M3';
+    console.log(`${J[dow]}: matin=${ma||'?'} nuit=${nu||'?'}`);
+  });
+}
+window.debugCycle = debugCycle;
+
 // MODULE 4 — Modèle hebdomadaire par éduc
 //
 // Lit les demandes spéciales (jour + plage + type) de chaque éduc
@@ -1402,6 +1574,18 @@ function detecterViolations(planning, moisStr) {
           const gapH = (debut - der.fin) / 3_600_000;
           // gapH > -1 évite les faux positifs sur prestations simultanées
           if (gapH > -1 && gapH < REPOS_MIN) {
+            // Exception : pause (matin→soir même jour) autorisée si l'éduc l'accepte
+            const eObj = educById(eid);
+            if (eObj?.acceptePause && der.ds === ds) {
+              const tp1 = typePlage(der.plage), tp2 = typePlage(p);
+              const isPause = (tp1==='matin'&&tp2==='soir') || (tp1==='soir'&&tp2==='matin');
+              if (isPause) {
+                // Pause autorisée → mettre quand même à jour la fin mais pas de violation
+                if (!derniereFin[eid] || fin > derniereFin[eid].fin)
+                  derniereFin[eid] = { fin, ds, plage: p };
+                return;
+              }
+            }
             violations.push({
               eid,
               ds, plage: p,
@@ -2270,34 +2454,19 @@ async function lancer(){
     L('Module 4 désactivé (window.MODULE4_ENABLED = false)',11);
   }
 
+  // Module 4B — Cycle fixe matin/nuit (pré-allocation AVANT genMois)
+  // Calcule la grille de référence depuis les demandes et l'applique comme locks
+  if(typeof window === 'undefined' || window.MODULE4B_ENABLED !== false){
+    L('Module 4B : cycle fixe matin/nuit...',13); await sl(20);
+    const m4b = genererCycleFixe(mois);
+    if(m4b && m4b.locks > 0) L(`  ${m4b.locks} créneau(x) verrouillé(s) par le cycle`,null);
+  }
+
   const result=await genMois(mois,L);
   window._lastDiagnostic=result.diagnostic||[];
 
-  // Module 7 — Cycle Engine (remplace l'affectation jour de genMois)
-  if (typeof window === 'undefined' || window.MODULE7_ENABLED !== false) {
-    L('Module 7 : application du cycle hebdomadaire...',75); await sl(30);
-    // Fusionner le planning cyclique (jours) avec le planning existant (nuits+locks)
-    const planCyclique = genererPlanningCyclique(mois, result.planning, L);
-    // Écraser les plages de jour dans result.planning avec le cycle
-    const [cy7, cm7] = mois.split('-').map(Number);
-    getDays(cy7, cm7).forEach(d => {
-      const ds = dayStr(d);
-      if (!planCyclique[ds]) return;
-      Object.entries(planCyclique[ds]).forEach(([k, v]) => {
-        // Ne pas écraser les locks M2/M3/M4 ni les nuits
-        if (k.startsWith('_lock_')) return;
-        const pid = +k;
-        if (isNaN(pid)) return;
-        const p = plageById(pid);
-        if (!p || isNuitP(p)) return; // garder les nuits de genMois
-        result.planning[ds][k] = v;
-      });
-    });
-    // Apprendre du mois généré pour améliorer le cycle progressivement
-    mettreAJourCycle(result.planning, mois);
-  } else {
-    L('Module 7 désactivé (window.MODULE7_ENABLED = false)', 75);
-  }
+  // Module 7 désactivé — remplacé par Module 4B (pré-allocation avant genMois)
+  // window.MODULE7_ENABLED = false pour confirmation
 
   // Module 5 — Filtre légalité (corrige les violations de repos post-génération)
   L('Module 5 : vérification légalité...',88); await sl(20);
