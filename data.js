@@ -19,8 +19,8 @@ const COLORS    = ['#2a5fc8','#1a7a4a','#c8622a','#7a3fc8','#c02a2a','#d4800a','
 
 function defaultLegal(){return[
   {id:'l1',nom:'Repos minimum entre 2 prestations',desc:"Repos obligatoire entre la fin et le debut d'une prestation",type:'min_repos',value:11,unit:'heures',active:true},
-  {id:'l2',nom:'Max jours consecutifs',desc:"Nombre maximum de jours de travail d'affilee",type:'max_consec',value:6,unit:'jours',active:true},
-  {id:'l3',nom:'Max heures par semaine',desc:"Plafond d'heures sur la semaine lundi-dimanche",type:'max_h_semaine',value:50,unit:'heures',active:true},
+  {id:'l2',nom:'Max jours consecutifs',desc:"Nombre maximum de jours de travail d'affilee",type:'max_consec',value:7,unit:'jours',active:true},
+  {id:'l3',nom:'Max heures par semaine',desc:"Plafond d'heures sur 7 jours glissants",type:'max_h_semaine',value:50,unit:'heures',active:true},
   {id:'l4',nom:'Max nuits consecutives',desc:"Nuits de travail d'affilee maximum",type:'max_nuits_consec',value:5,unit:'nuits',active:true},
   {id:'l5',nom:'Repos hebdo minimum',desc:'Jours de repos minimum par semaine',type:'min_repos_semaine',value:2,unit:'jours',active:true},
 ];}
@@ -85,8 +85,6 @@ function load(){
   try{
     const cfg = JSON.parse(localStorage.getItem('planeduc_v3_config')||'{}');
     if(cfg.educs)       educs       = cfg.educs;
-    // Auto-assign color if missing (éducs créés avant cette feature)
-    educs.forEach((e, i) => { if (!e.color) e.color = COLORS[i % COLORS.length]; });
     if(cfg.plages)      plages      = cfg.plages;
     if(cfg.reglesL)     reglesL     = cfg.reglesL;
     if(cfg.reglesI)     reglesI     = cfg.reglesI;
@@ -108,10 +106,6 @@ function load(){
       horaire = old.horaire;
       save();
     }
-
-    // Module 2 — charger les verrous WE auto si l'API est disponible
-    if(typeof loadWeAutoLocks === 'function') loadWeAutoLocks();
-
     console.log('Charge:',Object.keys(horaire).length,'mois:', Object.keys(horaire).join(', '));
   }catch(e){ console.error('Erreur chargement:',e); }
 }
@@ -124,27 +118,12 @@ function resetAll(){
   location.reload();
 }
 
-// Clés de cache à vider systématiquement avec les horaires
-const CACHE_KEYS = [
-  'planeduc_v3_patterns',
-  'planeduc_v3_annual',
-  'planeduc_v3_webloc',
-  'planeduc_v3_cycle',
-  'planeduc_v3_weauto',   // Module 2 — verrous WE auto-gravés
-  'planeduc_v3_nuitvend'  // Module 3 — pointeur cycle nuit vendredi
-];
-
 function resetHoraires(){
-  if(!confirm('Supprimer TOUS les horaires générés et réinitialiser les caches ?\n(Les éducateurs, plages et règles sont conservés)')) return;
-  // Horaires
+  if(!confirm('Supprimer TOUS les horaires generes ?\n(Les educateurs, plages et regles sont conserves)')) return;
   Object.keys(localStorage).filter(k=>k.startsWith('planeduc_v3_h_')).forEach(k=>localStorage.removeItem(k));
   localStorage.removeItem('planeduc_v3_mois');
-  // Caches moteur
-  CACHE_KEYS.forEach(k=>localStorage.removeItem(k));
   horaire = {};
-  if(typeof weAutoLocks !== 'undefined') weAutoLocks = {};
   save();
-  alert('Horaires et caches réinitialisés avec succès.');
   location.reload();
 }
 

@@ -11,7 +11,6 @@ function getJoursOuvrables(yr, mo){
 }
 
 // Cible heures d'un mois pour un educ : 7.6h x jours ouvrables x ratio contrat
-// On déduit les jours d'absence CP (ils comptent comme travaillés pour la cible)
 function getCibleMois(educ, yr, mo){
   return getJoursOuvrables(yr, mo) * 7.6 * (getTargetH(educ) / 38);
 }
@@ -95,7 +94,6 @@ function renderHoraire(){
       <span><span style="display:inline-block;width:40px;height:16px;border-radius:4px;background:#2a5fc818;border:1px solid #2a5fc833;vertical-align:middle"></span> Neutre</span>
       <span><span style="display:inline-block;width:40px;height:16px;border-radius:4px;background:#fdf3e0;border:1.5px solid #f0c878;vertical-align:middle;color:#d4800a;font-size:.65rem;text-align:center">⚠️</span> Demande à éviter non respectée</span>
       <span><span style="display:inline-block;width:40px;height:16px;border-radius:4px;background:#fdeaea;border:1.5px solid #f0b3b3;vertical-align:middle;color:#c02a2a;font-size:.65rem;text-align:center">✗</span> Plage refusée assignée</span>
-      <span title="Bloc WE gravé automatiquement par Module 2"><span style="color:#2a5fc8;font-size:1rem">🔒</span> Bloc WE auto (sam+dim équipe identique)</span>
       <span class="badge ${forcedCount>0?'b-red':'b-green'}" style="margin-left:auto">
         ${forcedCount>0?`⚠️ ${forcedCount} demande(s) non respectée(s)`:'✅ Toutes les demandes respectées'}
       </span>
@@ -162,37 +160,14 @@ function renderHoraire(){
       for(let i=0;i<Math.max(0,miss);i++) chips += `<span class="missing-chip">⚠️ Poste libre</span>`;
       absHere.forEach(e=>{ chips += `<span class="abs-chip">🏥 ${e.prenom}</span>`; });
 
-      // Module 2 — cadenas bleu si bloc WE gravé automatiquement
-      const isWEAuto = (typeof isAutoLockWE === 'function') && isAutoLockWE(currentMonth, ds, p.id);
-      const lockBadge = isWEAuto
-        ? `<span class="we-auto-lock" title="Bloc WE gravé automatiquement par Module 2 — cliquez pour déverrouiller"
-                 onclick="event.stopPropagation();unlockAutoWE('${ds}',${p.id})"
-                 style="position:absolute;top:2px;right:4px;color:#2a5fc8;font-size:.95rem;cursor:pointer;opacity:.75">🔒</span>`
-        : '';
-
-      html += `<td class="${we||ferie?'we-bg':''}" onclick="openCellEdit('${ds}',${p.id})" style="cursor:pointer;position:relative">
-        ${lockBadge}${chips || '<div class="empty-slot">Vide</div>'}
+      html += `<td class="${we||ferie?'we-bg':''}" onclick="openCellEdit('${ds}',${p.id})" style="cursor:pointer">
+        ${chips || '<div class="empty-slot">Vide</div>'}
       </td>`;
     });
     html += '</tr>';
   });
   html += '</tbody></table>';
   document.getElementById('sch-table').innerHTML = html;
-}
-
-// ── Déverrouiller un bloc WE auto ──
-function unlockAutoWE(ds, plageId){
-  if(!confirm('Déverrouiller ce bloc WE ? Il pourra être réassigné à la prochaine génération.')) return;
-  const mo = ds.slice(0,7);
-  if(horaire[mo] && horaire[mo][ds]){
-    horaire[mo][ds]['_lock_'+plageId] = null;
-  }
-  if(typeof weAutoLocks !== 'undefined' && weAutoLocks[mo] && weAutoLocks[mo][ds]){
-    weAutoLocks[mo][ds] = weAutoLocks[mo][ds].filter(p => p !== +plageId);
-    if(typeof saveWeAutoLocks === 'function') saveWeAutoLocks();
-  }
-  save();
-  renderHoraire();
 }
 
 // ── Modification manuelle d'une cellule ──
@@ -248,6 +223,7 @@ function renderFiche(){
   const jours   = getDays(yr, mo);
   const plan    = horaire[moisStr] || {};
 
+  // CORRECTION : cible = 7.6h x jours ouvrables réels x ratio contrat
   const targetHMois = getCibleMois(educ, yr, mo);
 
   let totalTrav=0, totalCP=0;
@@ -261,8 +237,11 @@ function renderFiche(){
       return ids.includes(educId);
     });
     const h = myPlages.reduce((s,p)=>s+p.dureeH, 0);
-    if(abs && abs.type==='conge') totalCP += 7.6 * (getTargetH(educ) / 38);
-    else totalTrav += h;
+    // CP : on compte 7.6h x ratio par jour de conge
+    // Congé, maladie, formation : 7.6h x ratio crédités, uniquement les jours ouvrables
+    const ouvrable = d.getDay()>=1 && d.getDay()<=5 && !isFerie(ds);
+    if(abs && ['conge','maladie','formation'].includes(abs.type) && ouvrable) totalCP += 7.6 * (getTargetH(educ) / 38);
+    totalTrav += h;
 
     const plageChips = abs
       ? `<span class="plage-tag" style="background:var(--orange-l);color:var(--orange)">${abs.type==='conge'?'🌴 CP':abs.type==='maladie'?'🤒 Mal.':'🔄 Récup.'}</span>`
@@ -292,7 +271,7 @@ function renderFiche(){
         </div>
         <div style="margin-left:auto;display:flex;gap:20px;flex-wrap:wrap;text-align:center">
           <div><div style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;color:var(--green)">${totalTrav.toFixed(1)}h</div><div style="font-size:.7rem;color:var(--ink3)">Travaillées</div></div>
-          <div><div style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;color:var(--orange)">${totalCP.toFixed(1)}h</div><div style="font-size:.7rem;color:var(--ink3)">CP</div></div>
+          <div><div style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;color:var(--orange)">${totalCP.toFixed(1)}h</div><div style="font-size:.7rem;color:var(--ink3)">CP / abs. payées</div></div>
           <div><div style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;color:var(--blue)">${targetHMois.toFixed(1)}h</div><div style="font-size:.7rem;color:var(--ink3)">Cible mois</div></div>
           <div><div style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;color:${Math.abs(solde)<=15?'var(--green)':solde>0?'var(--orange)':'var(--red)'}">${solde>=0?'+':''}${solde.toFixed(1)}h</div><div style="font-size:.7rem;color:var(--ink3)">Solde</div></div>
         </div>
@@ -300,7 +279,7 @@ function renderFiche(){
     </div>
     <div class="card">
       <div class="sch-wrap"><table class="sheet-table">
-        <thead><tr><th>Jour</th><th>Prestations</th><th>H. trav.</th><th>CP</th><th>Récup</th></tr></thead>
+        <thead><tr><th>Jour</th><th>Prestations</th><th>H. trav.</th><th>CP / Abs.</th><th>Récup</th></tr></thead>
         <tbody>${rows}</tbody>
         <tfoot><tr class="sheet-total">
           <td colspan="2" style="text-align:left;padding:8px">TOTAL ${monthLabel(moisStr)}</td>

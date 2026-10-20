@@ -25,6 +25,7 @@
   <div class="nav-item" onclick="nav(this,'stats')"><span>📊</span> Stats prestations</div>
   <div class="nav-item" onclick="nav(this,'feries')"><span>🎉</span> Jours fériés</div>
   <div class="nav-item" onclick="nav(this,'absences')"><span>🏥</span> Absences</div>
+  <div class="nav-item" onclick="nav(this,'diagnostic')"><span>🔍</span> Diagnostic</div>
   <div class="nav-sec">Données</div>
   <div class="nav-item" onclick="exportData()"><span>💾</span> Exporter JSON</div>
   <div class="nav-item" onclick="document.getElementById('imp').click()"><span>📂</span> Importer JSON</div>
@@ -63,18 +64,6 @@
           <option value="matin">🌅 Matin</option><option value="aprem">☀️ Après-midi</option>
           <option value="soir">🌆 Soir</option><option value="nuit">🌙 Nuit</option>
           <option value="journee">🌤️ Journée</option><option value="reunion">📢 Réunion</option><option value="autre">📌 Autre</option>
-        </select>
-      </div>
-      <div class="field"><label>Groupe d'équité</label>
-        <select id="p-groupe">
-          <option value="auto">🔄 Automatique — détection par le moteur</option>
-          <option value="G1">G1 — Lever / Ouverture semaine (lun→ven matin)</option>
-          <option value="G2">G2 — Fin de journée semaine (aprem/soir lun→ven)</option>
-          <option value="G3">G3 — Nuit tournante stricte (1 éduc différent / semaine)</option>
-          <option value="G4">G4 — Nuit semaine (pool partagé lun→jeu)</option>
-          <option value="G5">G5 — Journée week-end et jours fériés</option>
-          <option value="G6">G6 — Nuit week-end et jours fériés</option>
-          <option value="G7">G7 — Réunion / Administratif (tous présents)</option>
         </select>
       </div>
       <div class="g2">
@@ -159,10 +148,10 @@
     </div>
     <div class="card">
       <div class="card-title" style="margin-bottom:12px">Options</div>
-      <div class="field"><label class="chk-pill on" onclick="togglePill(this)"><input type="checkbox" id="opt-we" checked>Rotation équitable des week-ends</label></div>
-      <div class="field"><label class="chk-pill on" onclick="togglePill(this)"><input type="checkbox" id="opt-nuit" checked>Rotation équitable des nuits</label></div>
-      <div class="field"><label class="chk-pill on" onclick="togglePill(this)"><input type="checkbox" id="opt-conge" checked>Respecter absences encodées</label></div>
-      <div class="field"><label class="chk-pill on" onclick="togglePill(this)"><input type="checkbox" id="opt-double" checked>Éviter nuit → matin le lendemain</label></div>
+      <div class="field"><label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" id="opt-we" checked>Rotation équitable des week-ends</label></div>
+      <div class="field"><label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" id="opt-nuit" checked>Rotation équitable des nuits</label></div>
+      <div class="field"><label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" id="opt-conge" checked>Respecter absences encodées</label></div>
+      <div class="field"><label class="chk-pill" onclick="togglePill(this)"><input type="checkbox" id="opt-double" checked>Éviter nuit → matin le lendemain</label></div>
     </div>
   </div>
   <div id="gen-recap" class="card" style="display:none"><div id="gen-recap-content"></div></div>
@@ -295,6 +284,12 @@
   <div id="abs-list"><div class="empty"><div class="icon">✅</div><p>Aucune absence.</p></div></div>
 </div>
 
+<!-- ===== DIAGNOSTIC ===== -->
+<div id="page-diagnostic" class="page">
+  <div class="page-title">🔍 Diagnostic génération</div>
+  <div class="empty"><div class="icon">🔍</div><p>Générez un horaire pour voir le diagnostic.</p></div>
+</div>
+
 </main>
 </div>
 
@@ -308,22 +303,6 @@
   <div class="g2">
     <div class="field"><label>Prénom</label><input id="me-prenom" placeholder="Marie"></div>
     <div class="field"><label>Nom</label><input id="me-nom" placeholder="Dupont"></div>
-  </div>
-  <div class="field" style="display:flex;align-items:center;gap:12px">
-    <label style="margin:0;white-space:nowrap">Couleur</label>
-    <input type="color" id="me-color" value="#2a5fc8" style="width:44px;height:32px;border:none;border-radius:6px;cursor:pointer;padding:2px">
-    <div style="display:flex;gap:6px;flex-wrap:wrap">
-      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#2a5fc8" style="width:22px;height:22px;border-radius:50%;background:#2a5fc8;border:none;cursor:pointer"></button>
-      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#1a7a4a" style="width:22px;height:22px;border-radius:50%;background:#1a7a4a;border:none;cursor:pointer"></button>
-      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#c8622a" style="width:22px;height:22px;border-radius:50%;background:#c8622a;border:none;cursor:pointer"></button>
-      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#7a3fc8" style="width:22px;height:22px;border-radius:50%;background:#7a3fc8;border:none;cursor:pointer"></button>
-      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#c02a2a" style="width:22px;height:22px;border-radius:50%;background:#c02a2a;border:none;cursor:pointer"></button>
-      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#d4800a" style="width:22px;height:22px;border-radius:50%;background:#d4800a;border:none;cursor:pointer"></button>
-      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#1a7a8a" style="width:22px;height:22px;border-radius:50%;background:#1a7a8a;border:none;cursor:pointer"></button>
-      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#8a2a6a" style="width:22px;height:22px;border-radius:50%;background:#8a2a6a;border:none;cursor:pointer"></button>
-      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#6a8a1a" style="width:22px;height:22px;border-radius:50%;background:#6a8a1a;border:none;cursor:pointer"></button>
-      <button type="button" onclick="document.getElementById('me-color').value=this.dataset.c" data-c="#3a6a8a" style="width:22px;height:22px;border-radius:50%;background:#3a6a8a;border:none;cursor:pointer"></button>
-    </div>
   </div>
   <div class="g2">
     <div class="field"><label>Contrat</label>
@@ -349,16 +328,18 @@
     </div>
   </div>
   <hr>
-  <div class="field" style="display:flex;align-items:center;gap:10px">
-    <input type="checkbox" id="me-pause" style="width:18px;height:18px;cursor:pointer">
-    <label for="me-pause" style="cursor:pointer;font-weight:600">
-      Accord pour les horaires en pause
-      <span style="display:block;font-size:.75rem;font-weight:400;color:var(--ink3)">Matin + soir le même jour autorisé (avec la pause entre les deux)</span>
-    </label>
-  </div>
-  <hr>
   <div class="field"><label>Plages préférées</label><div class="chk-group" id="me-prefs"></div></div>
   <div class="field"><label>Plages refusées</label><div class="chk-group" id="me-excls"></div></div>
+  <hr>
+  <div class="field" style="padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px">
+    <label for="me-pause">Accepte les horaires à pause ?</label>
+    <select id="me-pause">
+      <option value="non">Non — une seule prestation terrain par jour</option>
+      <option value="oui">Oui — peut faire matin + soir le même jour (avec coupure)</option>
+    </select>
+    <div style="font-size:.72rem;color:var(--ink3);margin-top:4px">Si « Non », le moteur ne lui attribuera jamais deux prestations terrain le même jour. Une réunion reste possible avant ou après.</div>
+  </div>
+  <div class="field"><label>Notes</label><input id="me-notes" placeholder="Optionnel…"></div>
   <hr>
   <div style="margin-bottom:10px">
     <div style="font-size:.78rem;font-weight:700;color:var(--ink2);margin-bottom:8px">Demandes spéciales (max 2)</div>

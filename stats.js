@@ -56,9 +56,9 @@ function renderSoldes(){
       const joursOuv=getDays(ky,km).filter(day=>{
         const dw=day.getDay(); return dw>=1&&dw<=5&&!isFerie(dayStr(day));
       });
-      targetTotal+=joursOuv.length*7.6*ratio;
+      targetTotal+=joursOuv.length*7.6*ratio-(typeof creditHeuresAbs==='function'?creditHeuresAbs(e,ky,km):0);
       getDays(ky,km).forEach(day=>{
-        const ds=dayStr(day); if(isAbsent(e.id,ds)) return;
+        const ds=dayStr(day);
         plages.forEach(p=>{
           const ids=((plan[ds]||{})[p.id]||[]);
           if(ids.map(x=>+x).includes(e.id)) totalTrav+=_dureeH(p);
