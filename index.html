@@ -12,7 +12,7 @@
 
 <!-- SIDEBAR -->
 <aside class="sidebar">
-  <div class="brand"><h1>PlanEduc Pro</h1><p>Gestion horaires éducateurs</p></div>
+  <div class="brand"><h1>PlanEduc Pro</h1><p>Gestion horaires éducateurs · v26</p></div>
   <div class="nav-sec">Configuration</div>
   <div class="nav-item active" onclick="nav(this,'educateurs')"><span>👥</span> Éducateurs <span class="nav-badge" id="nb-educ">0</span></div>
   <div class="nav-item" onclick="nav(this,'plages')"><span>🕐</span> Plages horaires <span class="nav-badge" id="nb-plages">0</span></div>
@@ -32,7 +32,7 @@
   <div class="nav-item" onclick="resetHoraires()" style="color:#f0a060"><span>🗓️</span> Effacer les horaires</div>
   <div class="nav-item" onclick="resetAll()" style="color:#f08080"><span>🗑️</span> Tout réinitialiser</div>
   <input type="file" id="imp" accept=".json" style="display:none" onchange="importData(event)">
-  <div class="nav-bottom">Sauvegarde auto · localStorage</div>
+  <div class="nav-bottom">Sauvegarde auto · localStorage · version v26</div>
 </aside>
 
 <!-- MAIN CONTENT -->
@@ -144,6 +144,18 @@
           <option value="3" selected>3 mois (recommandé)</option><option value="6">6 mois</option>
         </select>
       </div>
+      <div class="field"><label>Cycle de la semaine type</label>
+        <select id="gen-cycle">
+          <option value="0" selected>Automatique (selon l'équipe et les plages) — recommandé</option>
+          <option value="1">1 semaine (même semaine chaque semaine)</option>
+          <option value="2">2 semaines (semaine A / B)</option>
+          <option value="3">3 semaines</option>
+          <option value="4">4 semaines</option>
+          <option value="6">6 semaines</option>
+          <option value="8">8 semaines</option>
+        </select>
+        <div style="font-size:.72rem;color:var(--ink3);margin-top:4px">Les prestations de semaine se répètent selon ce cycle. En automatique, le moteur choisit le cycle qui partage le mieux matins, soirs et nuits tout en gardant les semaines les plus stables. Les nuits jeudi+vendredi et les week-ends gardent leur propre tournante.</div>
+      </div>
       <div class="field"><label>Tolérance solde heures (±h sur la période)</label><input type="number" id="gen-tol" value="15" min="0" max="100"></div>
     </div>
     <div class="card">
@@ -159,6 +171,7 @@
     <button class="btn btn-outline" onclick="verifier()">🔍 Vérifier la config</button>
     <button class="btn btn-green" id="gen-btn" onclick="lancer()">⚡ Générer l'horaire</button>
   </div>
+  <div id="semaine-type"></div>
   <div id="gen-prog" class="card" style="display:none">
     <div class="card-title" style="margin-bottom:8px">Génération…</div>
     <div class="progress-bar"><div class="progress-fill" id="gen-bar" style="width:0%"></div></div>

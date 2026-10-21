@@ -1,5 +1,5 @@
 // ============================================================
-// algo.js - PlanEduc Pro - Moteur v25
+// algo.js - PlanEduc Pro - Moteur v26 (semaine type en cycle)
 // ============================================================
 // UN SEUL COUT, PAS DE SCORES QUI SE CONTREDISENT.
 //
@@ -39,19 +39,20 @@
 
 // ── Réglages du moteur (ajustables) ──
 const CFG={
-  hA:0.5, hB:1.5, hBand:3, hMonth:25,
-  tw:{matin:1.0,aprem:1.0,soir:1.0,nuit:2.0,journee:1.0,samJ:1.5,samN:1.5,dimJ:1.5,dimN:1.5,ferie:1.5},
-  twMois:{matin:6,aprem:5,soir:6,nuit:8,journee:3,samJ:0,samN:0,dimJ:0,dimN:0,ferie:1},
+  hA:0.5, hB:1.5, hBand:3, hBandBuild:8, hMonth:25,
+  tw:{matin:1.0,aprem:1.0,soir:1.0,nuit:2.0,journee:1.0,nuitJV:1.5,samJ:1.5,samN:1.5,dimJ:1.5,dimN:1.5,ferie:1.5},
+  twMois:{matin:6,aprem:5,soir:6,nuit:8,journee:3,nuitJV:0,samJ:0,samN:0,dimJ:0,dimN:0,ferie:1},
   twPlage:5,
-  rec7:14, rec14:8, recJour:2,
+  recCycle:60, recJour:6,   // semaine type : récompense pour garder sa prestation / ses jours
   cutWE:30, altWE:12, maxWE:35,
   nuit3:12, cons5:4, pauseDouble:2,
   prefPlage:3, demande:8, excl:150,
+  couverture:400,
   maxSweeps:60, timeBudget:6000, minGain:0.5
 };
 
 const DAY_MS=86400000, HOUR_MS=3600000, OVERLAP_TOL=HOUR_MS;
-const KEYS=['matin','aprem','soir','nuit','journee','samJ','samN','dimJ','dimN','ferie'];
+const KEYS=['matin','aprem','soir','nuit','journee','nuitJV','samJ','samN','dimJ','dimN','ferie'];
 const ABS_CREDIT={conge:1,maladie:1,formation:1};
 
 const isNuitP   = p => p.type==='nuit'||p.debut>='22:00'||(p.fin<='07:00'&&p.fin>'00:00');
@@ -112,11 +113,11 @@ function mkShift(ds,p,cur){
 function bumpInto(c,sh,sg){
   c.h+=sg*sh.h;
   if(!sh.terrain) return;
-  c[sh.cat]+=sg;
-  c.pl[sh.pid]=(c.pl[sh.pid]||0)+sg;
   const dow=dowOfDn(sh.dn);
   if(dow===5){ if(sh.night)c.samN+=sg; else c.samJ+=sg; }
   else if(dow===6){ if(sh.night)c.dimN+=sg; else c.dimJ+=sg; }
+  else if(sh.night&&(dow===3||dow===4)) c.nuitJV+=sg;
+  else { c[sh.cat]+=sg; c.pl[sh.pid]=(c.pl[sh.pid]||0)+sg; }
   if(sh.ferie) c.ferie+=sg;
 }
 function newCnt(){ const c={h:0,pl:{}}; KEYS.forEach(k=>c[k]=0); return c; }
@@ -176,6 +177,198 @@ function detecterImpossibilites(moisStr){
 }
 
 // ================================================================
+// SEMAINE TYPE (cycle de N semaines) — calculée à partir de l'équipe
+// et des plages, identique à chaque génération (pas de mémoire cachée).
+// Partage équitable des prestations de semaine (lun→ven) selon le
+// contrat, en tenant compte des heures faites dans les tournantes
+// (nuits jeu+ven, week-ends) et des réunions.
+// ================================================================
+function buildSemaineType(CYC){
+  const LIM=buildLimits(), WK=Math.max(1,CYC||2), CYCD=WK*7;
+  const mins=t=>{ const [h,m]=t.split(':').map(Number); return h*60+m; };
+  const terr=p=>!isReunion(p)&&!p.tous;
+  const nightOn=d=>plages.some(p=>terr(p)&&isNuitP(p)&&(p.jours||[]).includes(d));
+  const jvBloc=nightOn(3)&&nightOn(4);
+  const pos=[];
+  for(let k=0;k<WK;k++) for(let dow=0;dow<5;dow++) plages.forEach(p=>{
+    if(!terr(p)||!(p.jours||[]).includes(dow)) return;
+    if(isNuitP(p)&&jvBloc&&(dow===3||dow===4)) return;
+    const n=Math.max(0,+p.min||0), day=k*7+dow, s=day*1440+mins(p.debut); let e=day*1440+mins(p.fin); if(e<=s) e+=1440;
+    for(let i=0;i<n;i++) pos.push({k,dow,day,seat:i,pid:p.id,p,s,e,h:dureeH(p),cat:typeCat(p),night:isNuitP(p),who:null});
+  });
+  // Heures des tournantes réparties entre ceux qui peuvent les faire (au prorata du contrat)
+  const blocShare={}; educs.forEach(e=>blocShare[e.id]=0);
+  const partager=(h,peut)=>{ const el=educs.filter(peut); const R=el.reduce((s,e)=>s+ratioE(e),0); if(!R) return; el.forEach(e=>blocShare[e.id]+=h*ratioE(e)/R); };
+  if(jvBloc){
+    let h=0; [3,4].forEach(d=>plages.filter(p=>terr(p)&&isNuitP(p)&&(p.jours||[]).includes(d)).forEach(p=>h+=dureeH(p)*Math.max(1,+p.min||0)));
+    partager(h,e=>(e.jours||[]).includes(3)&&(e.jours||[]).includes(4)&&plages.some(p=>terr(p)&&isNuitP(p)&&!(e.excls||[]).includes(p.id)));
+  }
+  plages.filter(p=>terr(p)&&((p.jours||[]).includes(5)||(p.jours||[]).includes(6))).forEach(p=>{
+    const jw=(p.jours||[]).filter(d=>d>=5);
+    partager(dureeH(p)*Math.max(0,+p.min||0)*jw.length,e=>jw.every(d=>(e.jours||[]).includes(d))&&!(e.excls||[]).includes(p.id));
+  });
+  let maxBloc=0;
+  plages.filter(p=>terr(p)&&(p.jours||[]).includes(5)&&(p.jours||[]).includes(6)).forEach(p=>maxBloc=Math.max(maxBloc,2*dureeH(p)));
+  if(jvBloc) maxBloc=Math.max(maxBloc,24);
+  const ST={};
+  educs.forEach(e=>{
+    const r=Math.max(0.01,ratioE(e));
+    const reu=plages.filter(p=>p.tous).reduce((s,p)=>s+(p.jours||[]).filter(d=>(e.jours||[]).includes(d)).length*dureeH(p),0);
+    const T=WK*Math.max(0,38*ratioE(e)-blocShare[e.id]-reu);
+    // jours par semaine : 3, ou 4 si ses prestations possibles ne suffisent pas à faire ses heures en 3 jours
+    const hMax=Math.max(0,...pos.filter(q=>(e.jours||[]).includes(q.dow)&&!(e.excls||[]).includes(q.pid)).map(q=>q.h))*(e.acceptePause?2:1);
+    const base=Math.max(1,7-LIM.minReposSem-2);
+    ST[e.id]={e,r,T,H:0,list:[],cat:{},pl:{},dl:(hMax>0&&T/WK>base*hMax)?base+1:base};
+  });
+  const CW={matin:6,aprem:5,soir:6,nuit:10,journee:3};
+  const STAB_P=60, STAB_J=15;   // garder la même prestation / le même jour d'une semaine à l'autre
+  const meanOf=(fn)=>{ let s=0,n=0; educs.forEach(e=>{ s+=fn(ST[e.id])/ST[e.id].r; n++; }); return n?s/n:0; };
+  // Légalité dans le cycle (rotation : la dernière semaine enchaîne sur la première)
+  function legalT(st,q,dayLim,hReserve){
+    const e=st.e;
+    if(!(e.jours||[]).includes(q.dow)||(e.excls||[]).includes(q.pid)) return false;
+    const days=new Set(); let hWeek=q.h;
+    for(const o of st.list){
+      if(o.day===q.day&&o.pid===q.pid) return false;
+      if(o.k===q.k){ days.add(o.dow); hWeek+=o.h; }
+      let d=((o.day-q.day)%CYCD+CYCD)%CYCD; if(d>CYCD/2) d-=CYCD;     // écart en jours dans le cycle
+      if(Math.abs(d)>1) continue;
+      const shift=(q.day+d-o.day)*1440;   // ramène la prestation o juste avant/après q dans le cycle
+      const a={s:o.s+shift,e:o.e+shift,night:o.night}, b=q;
+      if(d===0){
+        if(!e.acceptePause||a.night||b.night) return false;
+        if(Math.min(a.e,b.e)-Math.max(a.s,b.s)>60) return false;
+        if(st.list.filter(x=>x.day===q.day).reduce((s,x)=>s+x.h,q.h)>16) return false;
+        continue;
+      }
+      const first=d<0?a:b, second=d<0?b:a, gap=(second.s-first.e)/60;
+      if(gap<LIM.minRepos) return false;
+      if(first.night&&!second.night&&LIM.reposNuit>0) return false;   // jour de repos après une nuit
+    }
+    days.add(q.dow);
+    if(days.size>dayLim) return false;
+    if(hWeek>LIM.maxHSem-hReserve) return false;
+    return true;
+  }
+  function costAdd(st,q){
+    const r=st.r; let c=0;
+    const H=st.H, T=st.T; c+=0.4*((H+q.h-T)**2-(H-T)**2);
+    const n=st.cat[q.cat]||0, m=meanOf(x=>x.cat[q.cat]||0);
+    c+=(CW[q.cat]||3)*(((n+1)/r-m)**2-(n/r-m)**2);
+    const np=st.pl[q.pid]||0, mp=meanOf(x=>x.pl[q.pid]||0);
+    c+=4*(((np+1)/r-mp)**2-(np/r-mp)**2);
+    if(st.list.some(o=>o.k!==q.k&&o.dow===q.dow&&o.pid===q.pid)) c-=STAB_P;
+    else if(st.list.some(o=>o.k!==q.k&&o.dow===q.dow)) c-=STAB_J;
+    if(st.list.some(o=>o.day===q.day)) c+=3;
+    return c;
+  }
+  const put=(st,q)=>{ q.who=st.e.id; st.list.push(q); st.H+=q.h; st.cat[q.cat]=(st.cat[q.cat]||0)+1; st.pl[q.pid]=(st.pl[q.pid]||0)+1; };
+  const take=(st,q)=>{ q.who=null; st.list.splice(st.list.indexOf(q),1); st.H-=q.h; st.cat[q.cat]--; st.pl[q.pid]--; };
+  // Ordre : nuits d'abord, puis postes les plus difficiles ; un même poste de toutes les semaines à la suite
+  const groups=new Map();
+  pos.forEach(q=>{ const g=q.dow+'|'+q.pid+'|'+q.seat; if(!groups.has(g)) groups.set(g,[]); groups.get(g).push(q); });
+  const elig=q=>educs.filter(e=>(e.jours||[]).includes(q.dow)&&!(e.excls||[]).includes(q.pid)).length;
+  const order=[...groups.values()].sort((A,B)=>(B[0].night-A[0].night)||(elig(A[0])-elig(B[0]))||(A[0].dow-B[0].dow)||(A[0].pid-B[0].pid));
+  const tries=[[0,maxBloc],[1,maxBloc],[9,0]];   // jours en plus de la limite personnelle, réserve d'heures
+  order.forEach(G=>G.forEach(q=>{
+    for(const [plus,res] of tries){
+      let best=null,bc=Infinity;
+      educs.forEach(e=>{ const st=ST[e.id]; if(!legalT(st,q,Math.min(5,st.dl+plus),res)) return; const c=costAdd(st,q); if(c<bc-1e-9){bc=c;best=st;} });
+      if(best){ put(best,q); break; }
+    }
+  }));
+  // Amélioration : transferts et échanges qui font baisser le coût global
+  let MT={};
+  const calcMT=()=>{ MT={}; Object.keys(CW).forEach(k=>MT[k]=meanOf(x=>x.cat[k]||0)); };
+  function costST(st){
+    const r=st.r; let c=0.4*(st.H-st.T)**2;
+    for(const k in CW){ const d=(st.cat[k]||0)/r-MT[k]; c+=CW[k]*d*d; }
+    const g=new Map(), dw=new Map(), dd=new Map();
+    st.list.forEach(o=>{ const a=o.dow+'|'+o.pid; g.set(a,(g.get(a)||new Set()).add(o.k)); dw.set(o.dow,(dw.get(o.dow)||new Set()).add(o.k)); dd.set(o.day,(dd.get(o.day)||0)+1); });
+    g.forEach(s=>c-=STAB_P*(s.size-1)); dw.forEach(s=>c-=STAB_J*(s.size-1)); dd.forEach(n=>{ if(n>1) c+=3; });
+    return c;
+  }
+  calcMT();
+  const base={};
+  for(let it=0;it<150;it++){
+    let best=null,bd=-0.5;
+    educs.forEach(e=>base[e.id]=costST(ST[e.id]));
+    for(const q of pos){ if(q.who==null) continue; const A=ST[q.who];
+      for(const e of educs){ if(e.id===q.who) continue; const B=ST[e.id];
+        if(!(e.jours||[]).includes(q.dow)||(e.excls||[]).includes(q.pid)) continue;
+        const c0=base[A.e.id]+base[B.e.id]; take(A,q);
+        if(legalT(B,q,Math.min(5,B.dl+1),maxBloc)){ put(B,q); const d=costST(A)+costST(B)-c0; take(B,q); if(d<bd){bd=d;best={q,A,B};} }
+        put(A,q);
+      } }
+    if(!best) break;
+    take(best.A,best.q); put(best.B,best.q);
+  }
+  const map={}, days=new Set();
+  pos.forEach(q=>{ if(q.who==null) return; const key=q.k+'|'+q.dow+'|'+q.pid; (map[key]=map[key]||[]).push(q.who); days.add(q.who+'|'+q.k+'|'+q.dow); });
+  const resume={}; educs.forEach(e=>{ const st=ST[e.id]; resume[e.id]={h:st.H,cible:st.T,list:st.list.slice().sort((a,b)=>a.s-b.s)}; });
+  // Qualité : équité par semaine (proratisée), stabilité d'une semaine à l'autre, heures
+  let eq=0, ecartMois=0; const ecarts={};
+  Object.keys(CW).forEach(cat=>{
+    if(!pos.some(q=>q.cat===cat)) return;
+    const v=educs.filter(e=>pos.some(q=>q.cat===cat&&(e.jours||[]).includes(q.dow)&&!(e.excls||[]).includes(q.pid)))
+                 .map(e=>(ST[e.id].cat[cat]||0)/(ST[e.id].r*WK));
+    if(v.length>1){ const d=Math.max(...v)-Math.min(...v); eq+=(cat==='nuit'?3:1)*d*d;
+      ecarts[cat]=d*4.33; ecartMois=Math.max(ecartMois,d*4.33); }   // écart par mois, en équivalent temps plein
+  });
+  let chg=0,tot=0;
+  if(WK>1){ const g=new Map(); pos.forEach(q=>{ const a=q.dow+'|'+q.pid; if(!g.has(a)) g.set(a,[]); const arr=g.get(a); (arr[q.k]=arr[q.k]||[]).push(q.who); });
+    g.forEach(arr=>{ for(let k=0;k<WK;k++){ const A=new Set(arr[k]||[]), B=new Set(arr[(k+1)%WK]||[]); A.forEach(x=>{ tot++; if(!B.has(x)) chg++; }); } }); }
+  const hdev=educs.reduce((s,e)=>s+Math.abs(ST[e.id].H-ST[e.id].T)/WK,0)/Math.max(1,educs.length);
+  const libres=pos.filter(q=>q.who==null).length;
+  const score=10*eq+80*(tot?chg/tot:0)+0.5*hdev+50*libres/WK+1.0*(WK-1);
+  return {cycle:WK,map,days,resume,libres,qualite:{eq,ecartMois,ecarts,stab:tot?1-chg/tot:1,hdev,score}};
+}
+function semaineTypeK(dn,CYC){ return ((weekOfDn(dn)%CYC)+CYC)%CYC; }
+let _tplMemo=null;
+const SEUIL_EQUITE=5.5;   // écart max accepté par mois entre éducateurs (équivalent temps plein, dans la semaine type)
+// cycle = 0 → automatique : essaie 1 à 8 semaines, garde le meilleur compromis
+function choisirSemaineType(cycle){
+  const sig=JSON.stringify([cycle,educs.map(e=>[e.id,e.contrat,e.heuresPerso,e.jours,e.excls,!!e.acceptePause]),
+    plages.map(p=>[p.id,p.debut,p.fin,p.jours,p.min,p.max,p.tous,p.type]),reglesL,reglesI,reglesC]);
+  if(_tplMemo&&_tplMemo.sig===sig) return _tplMemo.tpl;
+  let tpl;
+  if(cycle>0) tpl=buildSemaineType(cycle);
+  else {
+    // Le plus stable parmi les cycles où l'écart mensuel (matins, soirs, nuits…) reste acceptable
+    // cycles qui tombent juste dans un mois (≈ 4 semaines) : les mois restent comparables entre eux
+    const essais=[1,2,4,8].map(c=>buildSemaineType(c));
+    const ok=essais.filter(t=>!t.libres&&t.qualite.ecartMois<=SEUIL_EQUITE);
+    tpl=ok.length? ok.reduce((a,b)=>(b.qualite.stab>a.qualite.stab+0.02)?b:a)
+                 : essais.reduce((a,b)=>b.qualite.ecartMois<a.qualite.ecartMois-1e-9?b:a);
+    tpl.auto=essais.map(t=>({cycle:t.cycle,stab:t.qualite.stab,ecart:t.qualite.ecartMois,ecarts:t.qualite.ecarts}));
+  }
+  _tplMemo={sig,tpl};
+  return tpl;
+}
+
+// Affichage de la semaine type (page Générer)
+function renderSemaineType(TPL){
+  const el=(typeof document!=='undefined')&&document.getElementById('semaine-type'); if(!el||!TPL) return;
+  const lettres='ABCDEFGH', J=['Lun','Mar','Mer','Jeu','Ven'];
+  const abr=p=>(p.nom||'').slice(0,8)+' '+p.debut.replace(':00','h').replace(':','h');
+  let h=`<div class="card"><div class="card-hd"><div class="card-title">📋 Semaine type — cycle de ${TPL.cycle} semaine${TPL.cycle>1?'s':''}${TPL.auto?' (choisi automatiquement)':''}</div><span class="badge b-blue">stabilité ${Math.round(TPL.qualite.stab*100)}%</span></div>
+  <div style="font-size:.75rem;color:var(--ink3);margin-bottom:8px">Prestations de semaine qui se répètent. Les nuits jeudi+vendredi, les week-ends et les réunions suivent leur propre tournante et ne sont pas affichés ici.${TPL.libres?` ⚠️ ${TPL.libres} poste(s) sans titulaire fixe (attribués chaque semaine).`:''}</div>
+  <div class="sch-wrap"><table class="sch-table"><thead><tr><th>Éducateur</th>`;
+  for(let k=0;k<TPL.cycle;k++) J.forEach(j=>h+=`<th>${TPL.cycle>1?'Sem. '+lettres[k]+' ':''}${j}</th>`);
+  h+=`<th>Heures / cycle</th></tr></thead><tbody>`;
+  educs.forEach(e=>{
+    const R=TPL.resume[e.id]; if(!R) return;
+    h+=`<tr><td class="day-cell"><span class="name-chip" style="background:${e.color||'#888'}22;color:${e.color||'#333'}">${e.prenom}</span></td>`;
+    for(let k=0;k<TPL.cycle;k++) for(let d=0;d<5;d++){
+      const it=R.list.filter(q=>q.k===k&&q.dow===d);
+      h+=`<td style="font-size:.7rem">${it.map(q=>`<span class="plage-tag" style="background:${q.p.color||'#888'}22;color:${q.p.color||'#333'}">${abr(q.p)}</span>`).join('<br>')||'<span style="color:var(--ink3)">·</span>'}</td>`;
+    }
+    h+=`<td style="font-size:.72rem;text-align:center">${R.h.toFixed(1)}h<br><span style="color:var(--ink3)">+ tournantes</span></td></tr>`;
+  });
+  el.innerHTML=h+'</tbody></table></div></div>';
+}
+
+// ================================================================
 // MOTEUR
 // ================================================================
 async function genMois(moisStr,L,opts){
@@ -187,6 +380,11 @@ async function genMois(moisStr,L,opts){
   const LIM=buildLimits();
   const tolEl=(typeof document!=='undefined'&&document.getElementById)?document.getElementById('gen-tol'):null;
   const TOLH=opts.tol||(tolEl&&+tolEl.value)||15;
+  const cycEl=(typeof document!=='undefined'&&document.getElementById)?document.getElementById('gen-cycle'):null;
+  const cycReq=opts.cycle!==undefined?opts.cycle:(cycEl?+cycEl.value:0);
+  const TPL=choisirSemaineType(Math.max(0,Math.min(8,cycReq||0))), CYC=TPL.cycle, LAG=14;
+  const tplIds=(dn,pid)=>TPL.map[semaineTypeK(dn,CYC)+'|'+dowOfDn(dn)+'|'+pid]||[];
+  const tplWorks=(id,dn)=>TPL.days.has(id+'|'+semaineTypeK(dn,CYC)+'|'+dowOfDn(dn));
   const lockedSlots=getLockedSlots(moisStr);
   const planning={}, warnings=[], diagnostic=[];
   const S={},CNT={},HISTC={},OBJ={},DUE={},CRED={},HSOLDE={},ELIG={},MEANS={},MEANSM={},MEANSP={},ELIGP={};
@@ -227,13 +425,13 @@ async function genMois(moisStr,L,opts){
   const prevKey=moisKey(yr,mo-1), prevPlan=horaire[prevKey];
   if(prevPlan){
     const [py,pm]=prevKey.split('-').map(Number);
-    getDays(py,pm).slice(-14).forEach(d=>{
-      const ds=dayStr(d), dd=prevPlan[ds]; if(!dd) return;
+    for(let dn=MD0-(LAG+7);dn<MD0;dn++){
+      const ds=dsOfDn(dn), pp=horaire[ds.slice(0,7)], dd=pp&&pp[ds]; if(!dd) continue;
       plages.forEach(p=>{
         const ids=dd[p.id]; if(!Array.isArray(ids)) return;
         ids.forEach(x=>{ const e=educById(+x); if(e) applyAdd(e,mkShift(ds,p,false)); });
       });
-    });
+    }
   }
 
   // ── Objectifs du mois ──
@@ -245,7 +443,7 @@ async function genMois(moisStr,L,opts){
     const j=e.jours||[], ex=e.excls||[];
     const can=cat=>plages.some(p=>typeCat(p)===cat&&!ex.includes(p.id));
     ELIG[e.id]={matin:can('matin'),aprem:can('aprem'),soir:can('soir'),journee:can('journee'),
-      nuit:can('nuit'),samJ:j.includes(5),dimJ:j.includes(6),samN:j.includes(5)&&can('nuit'),
+      nuit:can('nuit'),nuitJV:can('nuit')&&(j.includes(3)||j.includes(4)),samJ:j.includes(5),dimJ:j.includes(6),samN:j.includes(5)&&can('nuit'),
       dimN:j.includes(6)&&can('nuit'),ferie:true};
     ELIGP[e.id]={}; plages.forEach(p=>{ if(!isReunion(p)&&!p.tous) ELIGP[e.id][p.id]=!ex.includes(p.id)&&(p.jours||[]).some(d=>j.includes(d)); });
   });
@@ -328,7 +526,7 @@ async function genMois(moisStr,L,opts){
   function costE(e,frac){
     const id=e.id,c=CNT[id],hc=HISTC[id],re=Math.max(0.01,ratioE(e)),arr=S[id],el=ELIG[id];
     let cost=0;
-    const dev=c.h-OBJ[id]*frac, ex=Math.max(0,Math.abs(dev)-CFG.hBand);
+    const dev=c.h-OBJ[id]*frac, ex=Math.max(0,Math.abs(dev)-(frac>=1?CFG.hBand:CFG.hBandBuild));
     cost+=CFG.hA*dev*dev+CFG.hB*ex*ex;
     if(frac>=1){
       const m=c.h+CRED[id]-DUE[id], ex2=Math.max(0,Math.abs(m)-(TOLH-3)); cost+=CFG.hMonth*ex2*ex2;
@@ -345,11 +543,10 @@ async function genMois(moisStr,L,opts){
       const o=arr[i]; if(!o.terrain) continue;
       const dow=dowOfDn(o.dn);
       if(o.cur){
-        const s7=byDn.get(o.dn-7), s14=byDn.get(o.dn-14);
-        if(dow>=5){ if(s14&&s14.indexOf(o.pid)>=0) cost-=CFG.rec14; }
-        else if(s7&&s7.indexOf(o.pid)>=0) cost-=CFG.rec7;
-        else if(s14&&s14.indexOf(o.pid)>=0) cost-=CFG.rec14;
-        else if(s7||s14) cost-=CFG.recJour;
+        if(dow<5&&!(o.night&&(dow===3||dow===4))&&!o.ferie){
+          if(tplIds(o.dn,o.pid).includes(id)) cost-=CFG.recCycle;   // sa prestation de la semaine type
+          else if(tplWorks(id,o.dn)) cost-=CFG.recJour;              // un de ses jours habituels
+        }
         if(prefs.includes(o.pid)) cost-=CFG.prefPlage;
         if(excl.includes(o.pid)) cost+=CFG.excl;
         for(const dm of dems){ if(dm.jour===dow&&(dm.plageIds||[]).includes(o.pid)) cost+=dm.type==='eviter'?CFG.demande:-CFG.demande; }
@@ -386,10 +583,11 @@ async function genMois(moisStr,L,opts){
   // Heures de réunions "tous" encore à venir ce mois (réservées dans le plafond)
   const REUN=[];
   dsList.forEach(ds=>plagesDuJour(ds).forEach(p=>{ if(p.tous) REUN.push({ds,dn:dnOf(ds),h:dureeH(p)}); }));
+  let jourTraite=MD0-1;   // dernier jour déjà construit : ses réunions sont passées
   function reuRest(e,dn){
     let h=0;
     for(const r of REUN){
-      if(r.dn===dn||!(e.jours||[]).includes(dowOfDn(r.dn))||isAbsent(e.id,r.ds)) continue;
+      if(r.dn<=jourTraite||r.dn===dn||!(e.jours||[]).includes(dowOfDn(r.dn))||isAbsent(e.id,r.ds)) continue;
       if(S[e.id].some(o=>o.reun&&o.dn===r.dn)) continue; // déjà comptée
       h+=r.h;
     }
@@ -542,6 +740,7 @@ async function genMois(moisStr,L,opts){
   for(let di=0;di<dsList.length;di++){
     const ds=dsList[di], dn=dnOf(ds), dow=dowOfDn(dn), ferie=isFerie(ds);
     if(!planning[ds]) planning[ds]={};
+    jourTraite=dn-1;
     const frac=(cum+0.5*demDay[di])/demTot; cum+=demDay[di];
     if(di%4===0){ L(`Jour ${di+1}/${dsList.length}`,15+Math.round(di/dsList.length*40)); await sl(0); }
 
@@ -551,6 +750,16 @@ async function genMois(moisStr,L,opts){
     todays.forEach(p=>{ const sh=mkShift(ds,p,true); scarce.set(p.id,educs.filter(e=>!legalAdd(e,sh,true)).length/Math.max(1,+p.min||1)); });
     todays.sort((a,b)=>(isReunion(a)-isReunion(b))||(scarce.get(a.id)-scarce.get(b.id)));
 
+    if(dow<5&&!ferie) for(const p of todays){
+      if(blockKeys.has(ds+'|'+p.id)||isReunion(p)||p.tous) continue;
+      const sh=mkShift(ds,p,true), reqMin=Math.max(0,+p.min||0);
+      if(!planning[ds][p.id]) planning[ds][p.id]=[];
+      for(const id of tplIds(dn,p.id)){
+        if(slotIds(ds,p.id).length>=reqMin) break;
+        const e=educById(id); if(!e||slotIds(ds,p.id).includes(id)) continue;
+        if(!legalAdd(e,sh,true)&&!convWhy(e,sh,0)) assign(e,ds,p);
+      }
+    }
     for(const p of todays){
       if(blockKeys.has(ds+'|'+p.id)) continue;
       const sh=mkShift(ds,p,true), reqMin=Math.max(0,+p.min||0);
@@ -610,6 +819,7 @@ async function genMois(moisStr,L,opts){
   // ================================================================
   // ETAPE 2 : REEQUILIBRAGE (heures, équité, WE, récurrence)
   // ================================================================
+  jourTraite=MD1;
   L('Rééquilibrage des heures et des prestations...',58); await sl(20);
   const slots=[];
   dsList.forEach(ds=>plagesDuJour(ds).forEach(p=>{
@@ -647,9 +857,10 @@ async function genMois(moisStr,L,opts){
         applyAdd(A,sh);
       }
       if(ids.length<slot.max){
+        const trou=ids.length<slot.min;   // poste non couvert : le combler passe avant le reste
         for(const B of educs){
-          if(ids.includes(B.id)||(B.excls||[]).includes(slot.p.id)||legalAdd(B,sh,true)||convWhy(B,sh,0)) continue;
-          applyAdd(B,sh); const dB=costE(B,1)-base[B.id]; applyRemove(B,sh);
+          if(ids.includes(B.id)||(B.excls||[]).includes(slot.p.id)||legalAdd(B,sh,true)||convWhy(B,sh,trou?1:0)) continue;
+          applyAdd(B,sh); const dB=costE(B,1)-base[B.id]-(trou?CFG.couverture:0); applyRemove(B,sh);
           if(dB<-CFG.minGain) moves.push({t:'add',B,slot,d:dB});
         }
       }
@@ -729,15 +940,15 @@ async function genMois(moisStr,L,opts){
   });
 
   let recOK=0,recTot=0,cuts=0;
+  function hasData(dn){
+    if(dn>=MD0&&dn<=MD1) return true;
+    const ds=dsOfDn(dn), pp=horaire[ds.slice(0,7)], dd=pp&&pp[ds];
+    return !!dd&&Object.keys(dd).some(k=>!k.startsWith('_')&&Array.isArray(dd[k])&&dd[k].length);
+  }
   const bilan=educs.map(e=>{
     const c=CNT[e.id], mois=c.h+CRED[e.id]-DUE[e.id];
     const byDn=new Map(); S[e.id].forEach(o=>{ if(o.terrain){ if(!byDn.has(o.dn))byDn.set(o.dn,[]); byDn.get(o.dn).push(o.pid);} });
-    S[e.id].forEach(o=>{
-      if(!o.cur||!o.terrain||dowOfDn(o.dn)>=5) return;
-      const s7=byDn.get(o.dn-7), s14=byDn.get(o.dn-14);
-      if(!s7&&!s14) return;
-      recTot++; if((s7&&s7.includes(o.pid))||(s14&&s14.includes(o.pid))) recOK++;
-    });
+
     const wk=new Map();
     S[e.id].forEach(o=>{ if(!o.terrain) return; const dw=dowOfDn(o.dn); if(dw<4) return;
       const k=weekOfDn(o.dn); if(!wk.has(k)) wk.set(k,{fn:0,s:0,d:0,sn:0}); const w=wk.get(k);
@@ -747,9 +958,14 @@ async function genMois(moisStr,L,opts){
   });
 
   if(opts.hook) opts.hook({S,CNT,OBJ,HSOLDE,legalAdd,costE,convWhy,calcMeans,shift:(ds,pid)=>mkShift(ds,plageById(pid),true)});
-  return {planning,warnings,diagnostic,bilan,
+  dsList.forEach(ds=>{
+    const dn=dnOf(ds); if(dowOfDn(dn)>=5||isFerie(ds)) return;
+    plagesDuJour(ds).forEach(p=>{ tplIds(dn,p.id).forEach(id=>{ if(blockKeys.has(ds+'|'+p.id)) return; recTot++; if(slotIds(ds,p.id).includes(id)) recOK++; }); });
+  });
+  if(typeof window!=='undefined') window._semaineType=TPL;
+  return {planning,warnings,diagnostic,bilan,semaineType:TPL,
     charge:{demande,capacite},
-    recurrence:recTot?recOK/recTot:1, coupes:cuts, ajustements:nMoves};
+    recurrence:recTot?recOK/recTot:1, cycle:CYC, coupes:cuts, ajustements:nMoves};
 }
 
 // ================================================================
@@ -820,6 +1036,7 @@ function verifier(){
     }).join('');
   }
   ri.innerHTML=html;
+  if(!warns.length){ const c=document.getElementById('gen-cycle'); renderSemaineType(choisirSemaineType(c?+c.value:0)); }
 }
 
 async function lancer(){
@@ -836,6 +1053,7 @@ async function lancer(){
     detecterImpossibilites(mois).slice(0,8).forEach(m=>L('⚠ '+m,null));
     const r=await genMois(mois,L);
     window._lastDiagnostic=r.diagnostic||[];
+    renderSemaineType(r.semaineType);
     horaire[mois]=r.planning; currentMonth=mois; save();
 
     const audit=auditLegal(r.planning,mois);
@@ -843,7 +1061,7 @@ async function lancer(){
     const pct=x=>Math.round(x*100);
     L(`Charge : ${r.charge.demande.toFixed(0)}h à couvrir (minimum) pour ${r.charge.capacite.toFixed(0)}h à prester par l'équipe`,null);
     if(r.charge.demande>r.charge.capacite*1.03) L('⚠ Les minimums demandent plus d\'heures que l\'équipe n\'en doit : soldes positifs inévitables.',null);
-    L(`Récurrence semaine/semaine : ${pct(r.recurrence)}% · WE coupés : ${r.coupes} · Ajustements : ${r.ajustements}`,null);
+    L(`Semaine type (cycle de ${r.cycle} sem.${r.semaineType&&r.semaineType.auto?', automatique':''}) respectée à ${pct(r.recurrence)}% · WE coupés : ${r.coupes} · Ajustements : ${r.ajustements}`,null);
     L(audit.length?`❌ ${audit.length} infraction(s) légale(s) détectée(s)`:'✅ Audit légal : aucune infraction',null);
     audit.slice(0,6).forEach(a=>L(`❌ ${a.ds} ${a.educ} : ${a.msg}`,null));
     r.bilan.slice().sort((a,b)=>Math.abs(b.cumul)-Math.abs(a.cumul)).slice(0,4).forEach(b=>
@@ -853,7 +1071,7 @@ async function lancer(){
     const maxDev=Math.max(0,...r.bilan.map(b=>Math.abs(b.mois)));
     const ok=!audit.length&&!trous;
     showAlert('gen-alerts',ok?'ok':'warn',
-      `Horaire généré — ${audit.length?audit.length+' infraction(s) légale(s)':'légal'} · ${trous?trous+' poste(s) non couvert(s)':'tout couvert'} · écart heures max ${maxDev.toFixed(1)}h · récurrence ${pct(r.recurrence)}%`);
+      `Horaire généré — ${audit.length?audit.length+' infraction(s) légale(s)':'légal'} · ${trous?trous+' poste(s) non couvert(s)':'tout couvert'} · écart heures max ${maxDev.toFixed(1)}h · semaine type ${pct(r.recurrence)}%`);
   }catch(err){
     console.error(err); L('❌ Erreur : '+err.message,null);
     showAlert('gen-alerts','err','Erreur pendant la génération : '+err.message);

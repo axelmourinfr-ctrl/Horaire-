@@ -1,5 +1,5 @@
 // ============================================================
-// ui.js - Interface utilisateur : navigation, formulaires, modals
+// ui.js - Interface utilisateur : navigation, formulaires, modals — PlanEduc Pro v26
 // ============================================================
 
 // ── Initialisation ──
@@ -84,6 +84,10 @@ function itab(el, id){
 
 // ── Pills (cases à cocher stylisées) ──
 function togglePill(el){
+  // Bloque le clic natif du <label> pour que la case ne soit pas basculée deux fois
+  const ev = window.event;
+  if(ev && ev.target && ev.target.tagName==='INPUT'){ el.classList.toggle('on', ev.target.checked); return; }
+  if(ev && ev.preventDefault) ev.preventDefault();
   const cb = el.querySelector('input[type=checkbox]');
   if(!cb) return;
   cb.checked = !cb.checked;

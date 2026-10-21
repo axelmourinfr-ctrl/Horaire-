@@ -1,5 +1,5 @@
 // ============================================================
-// stats.js - Soldes heures et statistiques prestations v2
+// stats.js - Soldes heures et statistiques prestations v2 — PlanEduc Pro v26
 // ============================================================
 
 // ── Helpers locaux ──

@@ -1,5 +1,5 @@
 // ============================================================
-// horaire.js — Affichage horaire mensuel, fiche individuelle
+// horaire.js — Affichage horaire mensuel, fiche individuelle — PlanEduc Pro v26
 // ============================================================
 
 // Helper : nombre de jours ouvrables (lun-ven hors feries) d'un mois
@@ -236,7 +236,7 @@ function renderFiche(){
       const ids = ((plan[ds]||{})[p.id]||[]).map(x=>+x);
       return ids.includes(educId);
     });
-    const h = myPlages.reduce((s,p)=>s+p.dureeH, 0);
+    const h = myPlages.reduce((s,p)=>s+(p.dureeH||dureeH(p)), 0);
     // CP : on compte 7.6h x ratio par jour de conge
     // Congé, maladie, formation : 7.6h x ratio crédités, uniquement les jours ouvrables
     const ouvrable = d.getDay()>=1 && d.getDay()<=5 && !isFerie(ds);

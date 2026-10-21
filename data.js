@@ -1,5 +1,5 @@
 // ============================================================
-// data.js - État global, constantes, sauvegarde/chargement
+// data.js - État global, constantes, sauvegarde/chargement — PlanEduc Pro v26
 // ============================================================
 
 let educs       = [];
@@ -12,6 +12,7 @@ let absences    = [];
 let joursFeries = [];
 let currentMonth = new Date().toISOString().slice(0,7);
 let cellCtx     = {};
+const APP_VERSION = 'v26';
 
 const JOURS     = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
 const CONTRAT_H = {'temps-plein':38,'4/5':30.4,'3/4':28.5,'mi-temps':19,'perso':null};
