@@ -1,5 +1,5 @@
 // ============================================================
-// algo.js - PlanEduc Pro - Moteur v24
+// algo.js - PlanEduc Pro - Moteur v25
 // ============================================================
 // UN SEUL COUT, PAS DE SCORES QUI SE CONTREDISENT.
 //
@@ -40,8 +40,10 @@
 // ── Réglages du moteur (ajustables) ──
 const CFG={
   hA:0.5, hB:1.5, hBand:3, hMonth:25,
-  tw:{matin:1.2,aprem:1.0,soir:1.6,nuit:3.0,journee:1.0,samJ:2.0,samN:2.5,dimJ:2.0,dimN:2.5,ferie:1.5},
-  rec7:30, rec14:16, recJour:6,
+  tw:{matin:1.0,aprem:1.0,soir:1.0,nuit:2.0,journee:1.0,samJ:1.5,samN:1.5,dimJ:1.5,dimN:1.5,ferie:1.5},
+  twMois:{matin:6,aprem:5,soir:6,nuit:8,journee:3,samJ:0,samN:0,dimJ:0,dimN:0,ferie:1},
+  twPlage:5,
+  rec7:14, rec14:8, recJour:2,
   cutWE:30, altWE:12, maxWE:35,
   nuit3:12, cons5:4, pauseDouble:2,
   prefPlage:3, demande:8, excl:150,
@@ -67,6 +69,7 @@ function typeCat(p){
   if(isReunion(p)) return 'reunion';
   if(isNuitP(p)) return 'nuit';
   if(p.type==='matin'||p.type==='aprem'||p.type==='soir'||p.type==='journee') return p.type;
+  if(dureeH(p)>=8) return 'journee';
   const h=parseInt(p.debut); return h<10?'matin':h<14?'aprem':'soir';
 }
 function typePlage(p){ return typeCat(p); }
@@ -110,12 +113,13 @@ function bumpInto(c,sh,sg){
   c.h+=sg*sh.h;
   if(!sh.terrain) return;
   c[sh.cat]+=sg;
+  c.pl[sh.pid]=(c.pl[sh.pid]||0)+sg;
   const dow=dowOfDn(sh.dn);
   if(dow===5){ if(sh.night)c.samN+=sg; else c.samJ+=sg; }
   else if(dow===6){ if(sh.night)c.dimN+=sg; else c.dimJ+=sg; }
   if(sh.ferie) c.ferie+=sg;
 }
-function newCnt(){ const c={h:0}; KEYS.forEach(k=>c[k]=0); return c; }
+function newCnt(){ const c={h:0,pl:{}}; KEYS.forEach(k=>c[k]=0); return c; }
 
 // Règle active → sa valeur ; règle désactivée → "off" ; absente → défaut
 function ruleVal(type,def,off){
@@ -185,8 +189,8 @@ async function genMois(moisStr,L,opts){
   const TOLH=opts.tol||(tolEl&&+tolEl.value)||15;
   const lockedSlots=getLockedSlots(moisStr);
   const planning={}, warnings=[], diagnostic=[];
-  const S={},CNT={},HISTC={},OBJ={},DUE={},CRED={},HSOLDE={},ELIG={},MEANS={};
-  const TW=CFG.tw;
+  const S={},CNT={},HISTC={},OBJ={},DUE={},CRED={},HSOLDE={},ELIG={},MEANS={},MEANSM={},MEANSP={},ELIGP={};
+  const TW=CFG.tw, TWM=CFG.twMois;
 
   educs.forEach(e=>{ S[e.id]=[]; CNT[e.id]=newCnt(); HISTC[e.id]=newCnt(); HSOLDE[e.id]=0; });
 
@@ -243,14 +247,27 @@ async function genMois(moisStr,L,opts){
     ELIG[e.id]={matin:can('matin'),aprem:can('aprem'),soir:can('soir'),journee:can('journee'),
       nuit:can('nuit'),samJ:j.includes(5),dimJ:j.includes(6),samN:j.includes(5)&&can('nuit'),
       dimN:j.includes(6)&&can('nuit'),ferie:true};
+    ELIGP[e.id]={}; plages.forEach(p=>{ if(!isReunion(p)&&!p.tous) ELIGP[e.id][p.id]=!ex.includes(p.id)&&(p.jours||[]).some(d=>j.includes(d)); });
   });
 
   function calcMeans(){
     KEYS.forEach(k=>{
-      let s=0,n=0;
-      educs.forEach(e=>{ if(!ELIG[e.id][k]) return; s+=(HISTC[e.id][k]+CNT[e.id][k])/Math.max(0.01,ratioE(e)); n++; });
-      MEANS[k]=n?s/n:0;
+      let s=0,sm=0,n=0;
+      educs.forEach(e=>{ if(!ELIG[e.id][k]) return; const r=Math.max(0.01,ratioE(e)); s+=(HISTC[e.id][k]+CNT[e.id][k])/r; sm+=CNT[e.id][k]/r; n++; });
+      MEANS[k]=n?s/n:0; MEANSM[k]=n?sm/n:0;
     });
+    plages.forEach(p=>{
+      if(isReunion(p)||p.tous) return;
+      let s=0,n=0; educs.forEach(e=>{ if(!ELIGP[e.id][p.id]) return; s+=(CNT[e.id].pl[p.id]||0)/Math.max(0.01,ratioE(e)); n++; });
+      MEANSP[p.id]=n?s/n:0;
+    });
+  }
+  function eqCore(id,re){
+    const c=CNT[id],hc=HISTC[id],el=ELIG[id],ep=ELIGP[id]; let cost=0;
+    for(let i=0;i<KEYS.length;i++){ const k=KEYS[i]; if(!el[k]) continue;
+      const d=(hc[k]+c[k])/re-MEANS[k], dm=c[k]/re-MEANSM[k]; cost+=TW[k]*d*d+TWM[k]*dm*dm; }
+    for(const pid in MEANSP){ if(!ep[pid]) continue; const d=(c.pl[pid]||0)/re-MEANSP[pid]; cost+=CFG.twPlage*d*d; }
+    return cost;
   }
 
   // ================================================================
@@ -317,7 +334,7 @@ async function genMois(moisStr,L,opts){
       const m=c.h+CRED[id]-DUE[id], ex2=Math.max(0,Math.abs(m)-(TOLH-3)); cost+=CFG.hMonth*ex2*ex2;
       const cu=HSOLDE[id]+m, ex3=Math.max(0,Math.abs(cu)-(TOLH-6)); cost+=CFG.hMonth*ex3*ex3;
     }
-    for(let i=0;i<KEYS.length;i++){ const k=KEYS[i]; if(!el[k]) continue; const d=(hc[k]+c[k])/re-MEANS[k]; cost+=TW[k]*d*d; }
+    cost+=eqCore(id,re);
 
     const byDn=new Map();
     for(let i=0;i<arr.length;i++){ const o=arr[i]; if(!o.terrain) continue; let st=byDn.get(o.dn); if(!st){st=[];byDn.set(o.dn,st);} st.push(o.pid); }
@@ -404,7 +421,8 @@ async function genMois(moisStr,L,opts){
   // ================================================================
   const blockKeys=new Set();
   const ROT={};
-  educs.forEach(e=>ROT[e.id]={jv:0,lastJV:-1e9,we:0,weN:0,weJ:0,lastWE:-1e9,jvWeeks:new Set(),weWeeks:new Set()});
+  educs.forEach(e=>ROT[e.id]={jv:0,lastJV:-1e9,we:0,weN:0,weJ:0,lastWE:-1e9,jvWeeks:new Set(),weWeeks:new Set(),pl:{},plLast:{},plWeeks:{}});
+  const plKey=p=>p.id; // la plage du samedi identifie la prestation de week-end
   {
     const keys12=Object.keys(horaire).filter(k=>k<moisStr&&k>=moisKey(yr,mo-12)).sort();
     keys12.forEach(key=>{
@@ -419,6 +437,8 @@ async function genMois(moisStr,L,opts){
             if(night&&(dow===3||dow===4)&&!r.jvWeeks.has(wk)){ r.jvWeeks.add(wk); r.jv++; r.lastJV=Math.max(r.lastJV,wk); }
             if(dow>=5){
               if(!r.weWeeks.has(wk)){ r.weWeeks.add(wk); r.we++; r.lastWE=Math.max(r.lastWE,wk); if(night) r.weN++; else r.weJ++; }
+              const k=plKey(p); if(!r.plWeeks[k]) r.plWeeks[k]=new Set();
+              if(!r.plWeeks[k].has(wk)){ r.plWeeks[k].add(wk); r.pl[k]=(r.pl[k]||0)+1; r.plLast[k]=Math.max(r.plLast[k]||-1e9,wk); }
             }
           });
         });
@@ -426,13 +446,13 @@ async function genMois(moisStr,L,opts){
     });
   }
   const prevPlanB=horaire[moisKey(yr,mo-1)]||{};
-  function pairPlages(d1,d2,filt){
+  function pairPlages(d1,d2,filt,loose){
     const inM=dn=>dn>=MD0&&dn<=MD1;
     const ds1=dsOfDn(d1), ds2=dsOfDn(d2);
     const list=dn=>{ const ds=dsOfDn(dn); return inM(dn)?plagesDuJour(ds).filter(filt):plages.filter(q=>filt(q)&&(q.jours||[]).includes(dowOfDn(dn))); };
     const A=list(d1), B=list(d2), out=[];
     A.forEach(p=>{
-      const q=B.find(x=>x.id===p.id)||B.find(x=>typeCat(x)===typeCat(p)&&x.debut===p.debut);
+      const q=B.find(x=>x.id===p.id)||B.find(x=>typeCat(x)===typeCat(p)&&x.debut===p.debut)||(loose&&A.length===1&&B.length===1?B[0]:null);
       if(!q) return;
       const slots=[]; let prevIds=null;
       if(inM(d1)) slots.push({ds:ds1,p}); else if(prevPlanB[ds1]&&Array.isArray(prevPlanB[ds1][p.id])) prevIds=prevPlanB[ds1][p.id].map(Number);
@@ -467,9 +487,10 @@ async function genMois(moisStr,L,opts){
         const w=tryBlock(e,shs,lvl); if(w){ if(!lvl) reasons[e.id]=w; return false; } return true;
       });
       const r=e=>ROT[e.id], re=e=>Math.max(0.01,ratioE(e));
+      const pk=plKey(blk.slots[0].p);
       const key=kind==='jv'
         ? e=>[r(e).jv/re(e), r(e).lastJV]
-        : e=>[r(e).we/re(e), (night?r(e).weN:r(e).weJ)/re(e), r(e).lastWE];
+        : e=>[(r(e).pl[pk]||0)/re(e), r(e).weWeeks.has(wk-1)?1:0, r(e).we/re(e), r(e).plLast[pk]||-1e9];
       c.sort((a,b)=>{ const ka=key(a),kb=key(b); for(let i=0;i<ka.length;i++){ if(Math.abs(ka[i]-kb[i])>1e-9) return ka[i]-kb[i]; } return educs.indexOf(a)-educs.indexOf(b); });
       c.slice(0,blk.count-chosen.length).forEach(e=>chosen.push(e));
     }
@@ -479,6 +500,7 @@ async function genMois(moisStr,L,opts){
       const R=ROT[e.id];
       if(kind==='jv'&&!R.jvWeeks.has(wk)){ R.jvWeeks.add(wk); R.jv++; R.lastJV=wk; }
       if(kind==='we'&&!R.weWeeks.has(wk)){ R.weWeeks.add(wk); R.we++; R.lastWE=wk; if(night) R.weN++; else R.weJ++; }
+      if(kind==='we'){ const k=plKey(blk.slots[0].p); if(!R.plWeeks[k]) R.plWeeks[k]=new Set(); if(!R.plWeeks[k].has(wk)){ R.plWeeks[k].add(wk); R.pl[k]=(R.pl[k]||0)+1; R.plLast[k]=wk; } }
     });
     blk.slots.forEach(s2=>blockKeys.add(s2.ds+'|'+s2.p.id));
     const nomBloc=(kind==='jv'?'Nuits jeu+ven':'Week-end')+' — '+blk.slots[0].p.nom+' (tournante)';
@@ -497,7 +519,7 @@ async function genMois(moisStr,L,opts){
   const wks=[...new Set(dsList.map(ds=>weekOfDn(dnOf(ds))))].sort((a,b)=>a-b);
   const isNightPl=q=>!isReunion(q)&&isNuitP(q), isTerrain=q=>!isReunion(q)&&!q.tous;
   wks.forEach(wk=>{
-    pairPlages(wk*7,wk*7+1,isNightPl).forEach(b=>assignBlock(b,'jv',wk));
+    pairPlages(wk*7,wk*7+1,isNightPl,true).forEach(b=>assignBlock(b,'jv',wk));
     const weB=pairPlages(wk*7+2,wk*7+3,isTerrain);
     weB.sort((a,b)=>(b.slots[0].p&&isNuitP(b.slots[0].p))-(a.slots[0].p&&isNuitP(a.slots[0].p)));
     weB.forEach(b=>assignBlock(b,'we',wk));
@@ -601,9 +623,7 @@ async function genMois(moisStr,L,opts){
     return CFG.hA*dev*dev+CFG.hB*ex*ex+CFG.hMonth*(ex2*ex2+ex3*ex3);
   }
   function eqPart(e){
-    const id=e.id,c=CNT[id],hc=HISTC[id],re=Math.max(0.01,ratioE(e)),el=ELIG[id]; let s=0;
-    for(const k of KEYS){ if(!el[k]) continue; const d=(hc[k]+c[k])/re-MEANS[k]; s+=TW[k]*d*d; }
-    return s;
+    return eqCore(e.id,Math.max(0.01,ratioE(e)));
   }
   const t0=Date.now(); let nMoves=0;
   for(let sweep=0;sweep<CFG.maxSweeps&&Date.now()-t0<CFG.timeBudget;sweep++){

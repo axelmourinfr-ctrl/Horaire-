@@ -318,7 +318,7 @@ function renderPlageList(){
       <div class="plage-dot" style="background:${p.color}"></div>
       <div class="plage-info">
         <div class="plage-name">${p.nom} ${p.tous?'<span class="badge b-orange">Tous requis</span>':''}</div>
-        <div class="plage-detail">${p.debut} → ${p.fin} - ${p.dureeH.toFixed(1)}h - min ${p.min} éduc - ${jours}</div>
+        <div class="plage-detail">${p.debut} → ${p.fin} - ${(p.dureeH||dureeH(p)).toFixed(1)}h - min ${p.min} éduc - ${jours}</div>
       </div>
       <button class="btn btn-red btn-sm" onclick="delPlage(${p.id})">Suppr.</button>
     </div>`;

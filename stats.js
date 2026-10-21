@@ -105,7 +105,7 @@ function renderStats(){
   const stats={};
   educs.forEach(e=>{
     stats[e.id]={
-      totalH:0, nuits:0, we:0, ferie:0,
+      totalH:0, cible:0, nuits:0, we:0, ferie:0,
       // WE détaillés
       samJour:0, samNuit:0, dimJour:0, dimNuit:0,
       weCoupes:0, weBlocs:0, weNuitsWE:0,
@@ -120,6 +120,9 @@ function renderStats(){
     const plan=horaire[key];
     if(!plan||!Object.keys(plan).length) continue;
     moisTrouves++;
+    { const [cy,cm]=key.split('-').map(Number);
+      educs.forEach(e=>{ const due=getDays(cy,cm).filter(d=>{const w=d.getDay();return w>=1&&w<=5&&!isFerie(dayStr(d));}).length*7.6*(getTargetH(e)/38);
+        stats[e.id].cible+=due-(typeof creditHeuresAbs==='function'?creditHeuresAbs(e,cy,cm):0); }); }
     const [ky,km]=key.split('-').map(Number);
     const joursMois=getDays(ky,km);
 
@@ -219,7 +222,7 @@ function renderStats(){
     <thead>
       <tr>
         <th ${thStyle} rowspan="2" style="text-align:left;min-width:130px">Éducateur</th>
-        <th ${thStyle} rowspan="2">Total H</th>
+        <th ${thStyle} rowspan="2">Heures<br><span style="font-weight:400;font-size:.6rem">(solde vs contrat)</span></th>
         <th ${thStyle} rowspan="2">🌙 Nuits</th>
         <th ${thStyleWE} colspan="6">📅 Week-ends</th>
         <th ${thStyle} rowspan="2">🎉 Fériés</th>
@@ -238,8 +241,8 @@ function renderStats(){
 
   educs.forEach((e,i)=>{
     const s=stats[e.id];
-    const diffH=s.totalH-avgH;
-    const hCol=Math.abs(diffH)<5?'var(--green)':diffH>0?'var(--orange)':'var(--red)';
+    const diffH=s.totalH-s.cible; // solde réel : heures prestées - cible du contrat (absences payées déduites)
+    const hCol=Math.abs(diffH)<=15?'var(--green)':diffH>0?'var(--orange)':'var(--red)';
     html+=`<tr style="background:${i%2===0?'var(--surface)':'var(--surface2)'}">
       <td style="padding:7px 10px">
         <div style="display:flex;align-items:center;gap:7px">
@@ -250,7 +253,7 @@ function renderStats(){
       </td>
       <td style="padding:6px 8px;text-align:center;font-weight:700;color:${hCol}">
         ${s.totalH.toFixed(1)}h
-        <div style="font-size:.62rem;color:var(--ink3);font-weight:400">${diffH>=0?'+':''}${diffH.toFixed(1)}</div>
+        <div style="font-size:.62rem;color:var(--ink3);font-weight:400">solde ${diffH>=0?'+':''}${diffH.toFixed(1)}h</div>
       </td>
       ${cell(s.nuits,avgNuits,0.5)}
       ${cell(s.samJour,avgSamJ,0.5)}
